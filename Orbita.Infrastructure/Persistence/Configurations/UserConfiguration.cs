@@ -28,6 +28,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.EmailVerifiedAt).HasColumnName("email_verified_at");
         builder.Property(u => u.LastLoginAt).HasColumnName("last_login_at");
+
+        // Not in orbita-schema.dbml (added for ORB-A06's lockout acceptance criterion).
+        builder.Property(u => u.FailedLoginAttempts).HasColumnName("failed_login_attempts").IsRequired();
+        builder.Property(u => u.LockedUntil).HasColumnName("locked_until");
+
         builder.Property(u => u.CreatedAt).HasColumnName("created_at").IsRequired();
     }
 }
