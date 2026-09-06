@@ -14,6 +14,9 @@ public sealed class UserRepository(OrbitaDbContext dbContext) : IUserRepository
     public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => dbContext.Users.SingleOrDefaultAsync(u => u.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken)
+        => await dbContext.Users.Where(u => ids.Contains(u.Id)).ToListAsync(cancellationToken);
+
     public async Task AddAsync(User user, CancellationToken cancellationToken)
         => await dbContext.Users.AddAsync(user, cancellationToken);
 }
