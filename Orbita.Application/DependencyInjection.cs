@@ -11,6 +11,7 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IOrganizationRegistrationService, OrganizationRegistrationService>();
+        services.AddScoped<IAuthenticationService, AuthenticationService>();
 
         return services;
     }
