@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Orbita.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Orbita.Infrastructure.Persistence;
 namespace Orbita.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(OrbitaDbContext))]
-    partial class OrbitaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260906193101_AddUsersAndMemberships")]
+    partial class AddUsersAndMemberships
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -74,53 +77,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("memberships", (string)null);
                 });
 
-            modelBuilder.Entity("Orbita.Domain.Identity.RefreshToken", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<Guid>("FamilyId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("family_id");
-
-                    b.Property<Guid?>("ReplacedByTokenId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("replaced_by_token_id");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("token_hash");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FamilyId");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("refresh_tokens", (string)null);
-                });
-
             modelBuilder.Entity("Orbita.Domain.Identity.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -140,10 +96,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("email_verified_at");
 
-                    b.Property<int>("FailedLoginAttempts")
-                        .HasColumnType("integer")
-                        .HasColumnName("failed_login_attempts");
-
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -153,10 +105,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
-
-                    b.Property<DateTimeOffset?>("LockedUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("locked_until");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -236,15 +184,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Orbita.Domain.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Identity.RefreshToken", b =>
-                {
                     b.HasOne("Orbita.Domain.Identity.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
