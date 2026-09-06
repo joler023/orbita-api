@@ -17,6 +17,7 @@ public sealed class User : Entity
         string fullName,
         DateTimeOffset? emailVerifiedAt,
         DateTimeOffset? lastLoginAt,
+        DateTimeOffset? passwordSetAt,
         int failedLoginAttempts,
         DateTimeOffset? lockedUntil,
         DateTimeOffset createdAt)
@@ -27,6 +28,7 @@ public sealed class User : Entity
         FullName = fullName;
         EmailVerifiedAt = emailVerifiedAt;
         LastLoginAt = lastLoginAt;
+        PasswordSetAt = passwordSetAt;
         FailedLoginAttempts = failedLoginAttempts;
         LockedUntil = lockedUntil;
         CreatedAt = createdAt;
@@ -42,6 +44,17 @@ public sealed class User : Entity
 
     public DateTimeOffset? LastLoginAt { get; private set; }
 
+    /// <summary>
+    /// Not in orbita-schema.dbml (added for ORB-A07). Null means PasswordHash is an
+    /// unusable placeholder generated when this User was created by an invitation,
+    /// not chosen by the person themselves — see <see cref="CreateInvited"/>. Login
+    /// still works correctly without checking this flag anywhere, since a
+    /// placeholder hash never verifies against anything a person could type; it
+    /// exists so ORB-A07's accept flow knows whether to require a new password or
+    /// verify the existing one.
+    /// </summary>
+    public DateTimeOffset? PasswordSetAt { get; private set; }
+
     public int FailedLoginAttempts { get; private set; }
 
     public DateTimeOffset? LockedUntil { get; private set; }
@@ -53,28 +66,49 @@ public sealed class User : Entity
     /// hashes credentials itself — that is an infrastructure concern.
     /// </param>
     public static User Create(string email, string passwordHash, string fullName, DateTimeOffset now)
-    {
-        var normalizedEmail = RequireNonEmpty(email, nameof(email)).ToLowerInvariant();
-        if (!normalizedEmail.Contains('@', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("Email must be a valid address.", nameof(email));
-        }
-
-        return new User(
+        => new(
             Guid.NewGuid(),
-            normalizedEmail,
+            NormalizeEmail(email),
             RequireNonEmpty(passwordHash, nameof(passwordHash)),
             RequireLength(fullName, nameof(fullName), 1, FullNameMaxLength),
             emailVerifiedAt: null,
             lastLoginAt: null,
+            passwordSetAt: now,
             failedLoginAttempts: 0,
             lockedUntil: null,
             createdAt: now);
-    }
+
+    /// <summary>
+    /// A person invited by someone else, before they have chosen their own
+    /// credentials (ORB-A07). <paramref name="placeholderPasswordHash"/> must be an
+    /// unguessable, unusable value (e.g. the hash of a random token) — never a real
+    /// password — since nothing prevents a login attempt from reaching it.
+    /// </summary>
+    public static User CreateInvited(string email, string fullName, string placeholderPasswordHash, DateTimeOffset now)
+        => new(
+            Guid.NewGuid(),
+            NormalizeEmail(email),
+            RequireNonEmpty(placeholderPasswordHash, nameof(placeholderPasswordHash)),
+            RequireLength(fullName, nameof(fullName), 1, FullNameMaxLength),
+            emailVerifiedAt: null,
+            lastLoginAt: null,
+            passwordSetAt: null,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+            createdAt: now);
 
     public void RecordLogin(DateTimeOffset now) => LastLoginAt = now;
 
     public void VerifyEmail(DateTimeOffset now) => EmailVerifiedAt = now;
+
+    public void Rename(string fullName) => FullName = RequireLength(fullName, nameof(fullName), 1, FullNameMaxLength);
+
+    /// <param name="newPasswordHash">Already hashed — see <see cref="Create"/>.</param>
+    public void SetPassword(string newPasswordHash, DateTimeOffset now)
+    {
+        PasswordHash = RequireNonEmpty(newPasswordHash, nameof(newPasswordHash));
+        PasswordSetAt = now;
+    }
 
     public bool IsLockedOut(DateTimeOffset now) => LockedUntil is { } until && until > now;
 
@@ -97,6 +131,17 @@ public sealed class User : Entity
     {
         FailedLoginAttempts = 0;
         LockedUntil = null;
+    }
+
+    private static string NormalizeEmail(string email)
+    {
+        var normalized = RequireNonEmpty(email, nameof(email)).ToLowerInvariant();
+        if (!normalized.Contains('@', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Email must be a valid address.", nameof(email));
+        }
+
+        return normalized;
     }
 
     private static string RequireNonEmpty(string value, string paramName)

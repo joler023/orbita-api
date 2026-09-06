@@ -48,6 +48,9 @@ public sealed class Membership : Entity
 
     public DateTimeOffset CreatedAt { get; }
 
+    /// <summary>Not yet accepted through the invitation link (ORB-A07).</summary>
+    public bool IsPending => AcceptedAt is null;
+
     /// <summary>
     /// The membership created for the person who registers a new organization:
     /// self-accepted, role Owner, no inviter (ORB-A05).
@@ -62,4 +65,24 @@ public sealed class Membership : Entity
         acceptedAt: now,
         isActive: true,
         createdAt: now);
+
+    /// <summary>
+    /// A pending invitation sent by an existing Owner/Admin (ORB-A07). Stays pending
+    /// until <see cref="Accept"/> is called through a redeemed invitation token.
+    /// </summary>
+    public static Membership Invite(Guid tenantId, Guid userId, MemberRole role, Guid invitedBy, DateTimeOffset now) => new(
+        Guid.NewGuid(),
+        tenantId,
+        userId,
+        role,
+        invitedBy,
+        invitedAt: now,
+        acceptedAt: null,
+        isActive: true,
+        createdAt: now);
+
+    public void Accept(DateTimeOffset now) => AcceptedAt = now;
+
+    /// <summary>Used both to revoke a pending invitation and to remove an active member.</summary>
+    public void Deactivate() => IsActive = false;
 }
