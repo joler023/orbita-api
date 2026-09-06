@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
 namespace Orbita.Application;
@@ -9,6 +10,7 @@ public static class DependencyInjection
     {
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<ITenantService, TenantService>();
+        services.AddScoped<IOrganizationRegistrationService, OrganizationRegistrationService>();
 
         return services;
     }
