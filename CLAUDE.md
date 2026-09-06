@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`Orbita` is the backend API for Órbita: a multi-tenant conversational CRM (WhatsApp + Instagram, TikTok in phase 1) with AI agents, built on ASP.NET Core. This is currently a **fresh scaffold** — a default `dotnet new webapi` (controllers, no auth, no persistence) with Scalar added for API docs. There is no database access, no domain model, and no test project yet: the first work here is building all of that from scratch, so treat every convention below as binding from commit one, not as a retrofit.
+`Orbita` is the backend API for Órbita: a multi-tenant conversational CRM (WhatsApp + Instagram, TikTok in phase 1) with AI agents, built on ASP.NET Core with a Clean Architecture layering (Domain / Application / Infrastructure / Api). The `Tenant` vertical slice (create + get) is the reference implementation of the full pattern — every new aggregate should follow the same shape across the four projects rather than inventing a new one.
 
 The authoritative data model lives one level up at `../docs/orbita-schema.dbml` — read it before creating or changing any entity. Do not infer schema from guesswork; the DBML file's inline notes encode real product/business rules (see Architecture below).
 
@@ -14,18 +14,25 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 - Run: `dotnet run --project Orbita.Api`
 - Run with hot reload: `dotnet watch run --project Orbita.Api`
 - Format: `dotnet format Orbita.slnx`
-- Test (once a test project exists): `dotnet test`
+- Test: `dotnet test Orbita.slnx` (unit tests run standalone; integration tests spin up a real Postgres via Testcontainers — Docker must be running)
   - Single test: `dotnet test --filter "FullyQualifiedName~Namespace.ClassName.MethodName"`
+- Local database: `docker compose up -d` starts Postgres 17 with pgvector/pg_trgm/citext/pgcrypto pre-installed (`docker-compose.yml`, `scripts/init-extensions.sql`), matching the connection string in `appsettings.Development.json`.
+- EF Core migrations (tool is pinned via the local manifest — run `dotnet tool restore` once after cloning):
+  - Add: `dotnet tool run dotnet-ef migrations add <Name> --project Orbita.Infrastructure --startup-project Orbita.Api --output-dir Persistence/Migrations`
+  - Apply: `dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api`
 - API docs (Development only): OpenAPI document is mapped via `MapOpenApi()`, browsable through Scalar's UI mapped by `MapScalarApiReference()` (default route `/scalar/v1`).
-
-There is no test project in the solution yet. The first feature branch that adds backend logic must also add a test project (e.g. `Orbita.Api.Tests`, xUnit) and reference it from `Orbita.slnx` — nothing ships untested (see Testing below).
 
 ## Architecture
 
-- Solution format is `.slnx` (`Orbita.slnx`), currently referencing a single project: `Orbita.Api/Orbita.Api.csproj`.
-- Target framework: `net10.0`. `Nullable` and `ImplicitUsings` are already enabled in the csproj — never disable them.
-- API style: controller-based (`AddControllers()` / `MapControllers()`), not Minimal APIs. Keep new endpoints consistent with this.
-- `Program.cs` is the single composition root today; as the app grows, extend it with extension methods (`AddXyzServices`, `MapXyzEndpoints`) rather than letting it grow unbounded.
+- Solution format is `.slnx` (`Orbita.slnx`), with five projects: `Orbita.Domain`, `Orbita.Application`, `Orbita.Infrastructure`, `Orbita.Api`, plus `Orbita.UnitTests` and `Orbita.IntegrationTests`.
+- Target framework: `net10.0` everywhere. `Nullable` and `ImplicitUsings` are enabled in every csproj — never disable them.
+- **Layering and dependency direction** (each layer only depends on the ones to its left):
+  - `Orbita.Domain` — entities (e.g. `Tenant`) and the repository *interfaces* they need (e.g. `ITenantRepository`). No framework dependencies. Entities are rich: private setters, invariants enforced in a static `Create` factory and behavior methods, never anemic DTOs with public setters.
+  - `Orbita.Application` — one service per aggregate (e.g. `ITenantService`/`TenantService`) orchestrating domain + repository calls, plus its DTOs/requests and its own `AddOrbitaApplication(IServiceCollection)` DI extension. Application-level exceptions (e.g. `TenantSlugAlreadyExistsException`) signal business-rule violations to the Api layer.
+  - `Orbita.Infrastructure` — EF Core (`OrbitaDbContext`, `IEntityTypeConfiguration<T>` per entity under `Persistence/Configurations`, migrations under `Persistence/Migrations`), repository implementations, and its own `AddOrbitaInfrastructure(IServiceCollection, IConfiguration)` DI extension. Postgres via `Npgsql.EntityFrameworkCore.PostgreSQL`.
+  - `Orbita.Api` — controllers only (`AddControllers()` / `MapControllers()`, not Minimal APIs) plus the composition root (`Program.cs`) and cross-cutting concerns like `ErrorHandling/GlobalExceptionHandler` (an `IExceptionHandler` mapping domain/application exceptions to `ProblemDetails` — add new exception mappings there instead of `try/catch` in controllers).
+- EF Core, Npgsql, and `dotnet-ef` package versions are pinned together (currently `10.0.4`, one point release behind the very latest `Microsoft.EntityFrameworkCore.Design`) because `Npgsql.EntityFrameworkCore.PostgreSQL` lags the core EF Core release train — if you bump one, check `dotnet list package --include-transitive` for version-conflict (MSB3277) warnings and re-pin all EFCore-family packages to match.
+- `Program.cs` ends with `public partial class Program;` so `Orbita.IntegrationTests` can boot the real app via `WebApplicationFactory<Program>` — keep that declaration when editing `Program.cs`.
 
 ### Domain rules from `orbita-schema.dbml` (binding on all backend code, not just DB migrations)
 
@@ -43,6 +50,7 @@ There is no test project in the solution yet. The first feature branch that adds
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
 2. **Ultra-strict typing.** `Nullable` stays enabled — never annotate around it. No `dynamic`, no bare `object` where a concrete or generic type works, no `!` null-forgiving operator without a comment justifying the invariant. Public APIs (DTOs, controller signatures) must be fully typed, never `object`/`JsonElement` catch-alls.
 3. **Nothing ships untested.** Every feature (endpoint, service, domain rule) lands with unit tests and, where it touches persistence or the HTTP pipeline, integration tests, in the same set of commits. A feature branch without tests is not done.
+   - `Orbita.UnitTests` covers `Domain`/`Application` in isolation (Moq for repository interfaces, a fake `TimeProvider` — see `TestSupport/FixedTimeProvider` — for deterministic timestamps). No database, no HTTP.
+   - `Orbita.IntegrationTests` boots the real `Orbita.Api` via `WebApplicationFactory<Program>` against a real Postgres container (Testcontainers, `pgvector/pgvector:pg17` image, migrated on fixture startup) — see `TenantsApiFixture`/`TenantsControllerTests` as the template for a new controller's fixture.
 4. **Commit checkpoints.** Commit frequently enough that no more than ~2 hours of work sits uncommitted. Message format: `<type>: <short imperative description>`, max 72 characters, English only (never mix languages in one message). Types: `feat`, `fix`, `refactor`, `chore`, `test`, `docs`, `style`. One logical unit of work per commit — if the message needs "and", split it into two commits.
 5. **Branching.** `feature/<short-descriptive-name>` branches from `develop` and merges back into `develop`; `hotfix/<short-descriptive-name>` branches from `main` and merges into both `main` and `develop`. Never branch a feature off another feature branch without explicit coordination.
-   - **Current state:** this repo only has `main` (single `init` commit). `develop` does not exist yet — create it from `main` before opening the first `feature/*` branch.
