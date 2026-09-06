@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`Orbita` is the backend API for Órbita: a multi-tenant conversational CRM (WhatsApp + Instagram, TikTok in phase 1) with AI agents, built on ASP.NET Core with a Clean Architecture layering (Domain / Application / Infrastructure / Api). The `Tenant` vertical slice (create + get) is the reference implementation of the full pattern — every new aggregate should follow the same shape across the four projects rather than inventing a new one. The `Identity` slice (`User`, `Membership`, organization registration under `POST /api/organizations`) is the second one, and the one to copy for anything tenant-scoped: it is what actually enforces the isolation rule below (EF query filter + Postgres RLS + tenant-first index), not just declares it.
+`Orbita` is the backend API for Órbita: a multi-tenant conversational CRM (WhatsApp + Instagram, TikTok in phase 1) with AI agents, built on ASP.NET Core with a Clean Architecture layering (Domain / Application / Infrastructure / Api). The `Tenant` vertical slice (create + get) is the reference implementation of the full pattern — every new aggregate should follow the same shape across the four projects rather than inventing a new one. The `Identity` slice (`User`, `Membership`, organization registration under `POST /api/organizations`, login/session under `POST /api/auth/*`) is the second one, and the one to copy for anything tenant-scoped: it is what actually enforces the isolation rule below (EF query filter + Postgres RLS + tenant-first index), not just declares it.
 
 The authoritative data model lives one level up at `../docs/orbita-schema.dbml` — read it before creating or changing any entity. Do not infer schema from guesswork; the DBML file's inline notes encode real product/business rules (see Architecture below).
 
@@ -21,7 +21,7 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 - EF Core migrations (tool is pinned via the local manifest — run `dotnet tool restore` once after cloning):
   - Add: `dotnet tool run dotnet-ef migrations add <Name> --project Orbita.Infrastructure --startup-project Orbita.Api --output-dir Persistence/Migrations`
   - Apply: `dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api --connection "Host=localhost;Port=5432;Database=orbita_dev;Username=orbita;Password=orbita"`
-  - A migration that creates a new tenant-scoped table must enable RLS on it (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + a `tenant_isolation` policy using `current_setting('app.tenant_id', true)`, `NULLIF`-guarded against the empty string) — `orbita_app` already has the default-privilege grants to read/write it (see the same migration).
+  - A migration that creates a new tenant-scoped table must enable RLS on it (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + a `tenant_isolation` policy using `current_setting('app.tenant_id', true)`, `NULLIF`-guarded against the empty string) — `orbita_app` already has the default-privilege grants to read/write it (see the same migration). A non-tenant-scoped table (like `refresh_tokens`) needs neither RLS nor a query filter; `ALTER DEFAULT PRIVILEGES` still grants `orbita_app` access to it automatically since it's created by `orbita`.
 - API docs (Development only): OpenAPI document is mapped via `MapOpenApi()`, browsable through Scalar's UI mapped by `MapScalarApiReference()` (default route `/scalar/v1`).
 
 ## Architecture
@@ -50,6 +50,14 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 6. **Meta/WhatsApp business rules are explicit domain concepts, not infra details**: `conversations.window_expires_at` (24h free-form service window) and `message_templates.status = approved` (required to message outside that window) must be modeled and enforced in application logic, not left implicit.
 7. **Secrets and media never live in Postgres.** Channel credentials are referenced by `credentials_ref` (Secrets Manager ARN) with tokens encrypted via KMS; media is referenced by `media_key`/`avatar_key` (R2 object key) and served only via signed URLs.
 8. **No PII in `events.properties`.** Message bodies, phone numbers, and emails live in `messages`/`contacts`, which have access and deletion controls; the event log only carries identifiers and measures.
+
+### Authentication (ORB-A06)
+
+- The access token is a short-lived JWT carried in an `httpOnly`/`SameSite=Lax` cookie (`access_token`), not an `Authorization` header — so it also works for the SignalR WebSocket handshake later, which cannot set custom headers. `AddJwtBearer`'s `OnMessageReceived` event reads it from the cookie instead. `Secure` is only forced on outside `IsDevelopment()`, since local dev and the integration test server are plain HTTP.
+- The JWT carries only the user's identity (`sub`) — no tenant claim. Resolving which organization a session acts as (setting `ITenantContextSetter` from a claim) is deliberately left to whichever historia builds the first authenticated, tenant-scoped endpoint; don't invent that wiring speculatively.
+- Refresh tokens rotate: `AuthenticationService` never reuses a refresh token record, it issues a new one in the same `FamilyId` and marks the old one `RevokedAt`/`ReplacedByTokenId`. Presenting an already-revoked token is treated as theft and revokes the *entire* family (`IRefreshTokenRepository.RevokeFamilyAsync`, a bulk `ExecuteUpdateAsync` that commits immediately — it does not go through `IUnitOfWork`, because `refresh_tokens` isn't tenant-scoped and there's nothing else to save on that path). Only the SHA-256 hash of a refresh token is ever persisted.
+- Login lockout (`User.RegisterFailedLogin`/`IsLockedOut`) and `InvalidCredentialsException` are deliberately generic: an unknown email, a wrong password, and a locked-out account all produce the same 401 with the same message, so the API never becomes an oracle for which case it was.
+- The same "resolve configuration lazily through DI, not by capturing `builder.Configuration` into a variable before `.Build()`" rule from `AddOrbitaInfrastructure` applies to anything else configured in `Program.cs` from config (see `JwtBearerOptions`/`CorsOptions` there, both wired via `services.AddOptions<T>().Configure<IConfiguration>((options, configuration) => ...)` instead of a plain lambda that closes over a config value read too early).
 
 ## Mandatory engineering conventions
 
