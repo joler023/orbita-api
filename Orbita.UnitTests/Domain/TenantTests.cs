@@ -77,4 +77,35 @@ public sealed class TenantTests
         Assert.True(tenant.IsActive);
         Assert.Equal(reactivatedAt, tenant.UpdatedAt);
     }
+
+    [Theory]
+    [InlineData("Acme Corp", "acme-corp")]
+    [InlineData("  Café Bogotá S.A.S.  ", "cafe-bogota-s-a-s")]
+    [InlineData("¡Panadería El Sol!", "panaderia-el-sol")]
+    [InlineData("---", "org")]
+    [InlineData("", "org")]
+    public void Slugify_SanitizesArbitraryBusinessNames(string name, string expectedSlug)
+    {
+        Assert.Equal(expectedSlug, Tenant.Slugify(name));
+    }
+
+    [Fact]
+    public void Slugify_TruncatesToSlugMaxLength()
+    {
+        var longName = new string('a', Tenant.SlugMaxLength + 20);
+
+        var slug = Tenant.Slugify(longName);
+
+        Assert.True(slug.Length <= Tenant.SlugMaxLength);
+    }
+
+    [Fact]
+    public void Slugify_ProducesSlugAcceptedByCreate()
+    {
+        var slug = Tenant.Slugify("Café Bogotá S.A.S.");
+
+        var tenant = Tenant.Create(slug, "Café Bogotá S.A.S.");
+
+        Assert.Equal(slug, tenant.Slug);
+    }
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Orbita.Domain.Common;
 
 namespace Orbita.Domain.Tenants;
@@ -83,6 +85,45 @@ public sealed class Tenant : Entity
     {
         IsActive = true;
         UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Derives a URL-safe slug candidate from an arbitrary business name (accents,
+    /// spaces and punctuation included). Unlike <see cref="NormalizeSlug"/>, which
+    /// rejects invalid input, this sanitizes it — it is the building block for
+    /// generating a slug during organization registration, where the caller still
+    /// has to check availability and append a numeric suffix on collision.
+    /// </summary>
+    public static string Slugify(string name)
+    {
+        var decomposed = name.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+
+        foreach (var c in decomposed)
+        {
+            var category = CharUnicodeInfo.GetUnicodeCategory(c);
+            if (category == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c))
+            {
+                builder.Append(c);
+            }
+            else if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var slug = builder.ToString().Trim('-');
+        if (slug.Length > SlugMaxLength)
+        {
+            slug = slug[..SlugMaxLength].Trim('-');
+        }
+
+        return slug.Length == 0 ? "org" : slug;
     }
 
     private static string NormalizeSlug(string slug)

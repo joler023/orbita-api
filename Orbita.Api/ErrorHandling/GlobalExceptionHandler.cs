@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
 namespace Orbita.Api.ErrorHandling;
@@ -14,6 +15,7 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
         var (statusCode, title) = exception switch
         {
             TenantSlugAlreadyExistsException => (StatusCodes.Status409Conflict, "Tenant slug already exists"),
+            EmailAlreadyRegisteredException => (StatusCodes.Status409Conflict, "Email already registered"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
