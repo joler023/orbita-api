@@ -35,3 +35,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Exposed so Orbita.IntegrationTests can boot this app via WebApplicationFactory<Program>.
+public partial class Program;
