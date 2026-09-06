@@ -1,6 +1,6 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Api.Identity;
 using Orbita.Application.Identity;
 
 namespace Orbita.Api.Controllers;
@@ -10,16 +10,13 @@ namespace Orbita.Api.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(IAuthenticationService authenticationService, IWebHostEnvironment environment) : ControllerBase
 {
-    private const string AccessTokenCookie = "access_token";
-    private const string RefreshTokenCookie = "refresh_token";
-
     [HttpPost("login")]
     [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<CurrentUserResponse>> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
         var result = await authenticationService.LoginAsync(request, cancellationToken);
-        SetAuthCookies(result);
+        AuthCookies.Append(Response, result, secure: !environment.IsDevelopment());
         return Ok(ToCurrentUser(result));
     }
 
@@ -28,13 +25,13 @@ public sealed class AuthController(IAuthenticationService authenticationService,
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<CurrentUserResponse>> Refresh(CancellationToken cancellationToken)
     {
-        if (!Request.Cookies.TryGetValue(RefreshTokenCookie, out var refreshToken))
+        if (!Request.Cookies.TryGetValue(AuthCookies.RefreshToken, out var refreshToken))
         {
             return Unauthorized();
         }
 
         var result = await authenticationService.RefreshAsync(refreshToken, cancellationToken);
-        SetAuthCookies(result);
+        AuthCookies.Append(Response, result, secure: !environment.IsDevelopment());
         return Ok(ToCurrentUser(result));
     }
 
@@ -42,50 +39,19 @@ public sealed class AuthController(IAuthenticationService authenticationService,
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
-        if (Request.Cookies.TryGetValue(RefreshTokenCookie, out var refreshToken))
+        if (Request.Cookies.TryGetValue(AuthCookies.RefreshToken, out var refreshToken))
         {
             await authenticationService.LogoutAsync(refreshToken, cancellationToken);
         }
 
-        Response.Cookies.Delete(AccessTokenCookie);
-        Response.Cookies.Delete(RefreshTokenCookie, new CookieOptions { Path = "/api/auth" });
+        AuthCookies.Delete(Response);
         return NoContent();
     }
 
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType(typeof(CurrentUserIdResponse), StatusCodes.Status200OK)]
-    public ActionResult<CurrentUserIdResponse> Me()
-    {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        return Ok(new CurrentUserIdResponse(Guid.Parse(userId!)));
-    }
-
-    private void SetAuthCookies(AuthenticationResult result)
-    {
-        // Secure requires HTTPS, which local development and the test server don't
-        // have — everywhere else (Production, Staging), it's mandatory.
-        var secure = !environment.IsDevelopment();
-
-        Response.Cookies.Append(AccessTokenCookie, result.AccessToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = secure,
-            SameSite = SameSiteMode.Lax,
-            Expires = result.AccessTokenExpiresAt,
-        });
-
-        // Scoped to /api/auth: the refresh token only ever needs to travel to the
-        // refresh and logout endpoints, not on every request.
-        Response.Cookies.Append(RefreshTokenCookie, result.RefreshToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = secure,
-            SameSite = SameSiteMode.Lax,
-            Path = "/api/auth",
-            Expires = result.RefreshTokenExpiresAt,
-        });
-    }
+    public ActionResult<CurrentUserIdResponse> Me() => Ok(new CurrentUserIdResponse(User.GetUserId()));
 
     private static CurrentUserResponse ToCurrentUser(AuthenticationResult result)
         => new(result.UserId, result.Email, result.FullName);
