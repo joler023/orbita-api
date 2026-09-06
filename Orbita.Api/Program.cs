@@ -12,7 +12,7 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddOrbitaApplication();
-builder.Services.AddOrbitaInfrastructure(builder.Configuration);
+builder.Services.AddOrbitaInfrastructure();
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
