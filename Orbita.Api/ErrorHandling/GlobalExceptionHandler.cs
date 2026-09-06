@@ -1,0 +1,35 @@
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Tenants;
+
+namespace Orbita.Api.ErrorHandling;
+
+public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext httpContext,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var (statusCode, title) = exception switch
+        {
+            TenantSlugAlreadyExistsException => (StatusCodes.Status409Conflict, "Tenant slug already exists"),
+            ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
+            _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
+        };
+
+        httpContext.Response.StatusCode = statusCode;
+
+        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            Exception = exception,
+            ProblemDetails = new ProblemDetails
+            {
+                Status = statusCode,
+                Title = title,
+                Detail = exception.Message,
+            },
+        });
+    }
+}
