@@ -17,6 +17,39 @@ public sealed class UserTests
         Assert.Null(user.EmailVerifiedAt);
         Assert.Null(user.LastLoginAt);
         Assert.Equal(Now, user.CreatedAt);
+        Assert.Equal(Now, user.PasswordSetAt);
+    }
+
+    [Fact]
+    public void CreateInvited_LeavesPasswordSetAtNull()
+    {
+        var user = User.CreateInvited("invitee@acme.com", "invitee", "placeholder-hash", Now);
+
+        Assert.Equal("invitee@acme.com", user.Email);
+        Assert.Equal("placeholder-hash", user.PasswordHash);
+        Assert.Null(user.PasswordSetAt);
+    }
+
+    [Fact]
+    public void SetPassword_UpdatesHashAndPasswordSetAt()
+    {
+        var user = User.CreateInvited("invitee@acme.com", "invitee", "placeholder-hash", Now);
+        var setAt = Now.AddDays(1);
+
+        user.SetPassword("real-hash", setAt);
+
+        Assert.Equal("real-hash", user.PasswordHash);
+        Assert.Equal(setAt, user.PasswordSetAt);
+    }
+
+    [Fact]
+    public void Rename_UpdatesFullName()
+    {
+        var user = User.Create("jane@acme.com", "hash", "Jane Doe", Now);
+
+        user.Rename("Jane Smith");
+
+        Assert.Equal("Jane Smith", user.FullName);
     }
 
     [Theory]

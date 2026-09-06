@@ -24,8 +24,9 @@ Sobre esa base ya existe el arranque de **Identity & Tenancy** (track del Desarr
 - **Registro de organización** (`POST /api/organizations`): crea tenant + usuario dueño + membresía `owner` en una sola transacción, con slug generado automáticamente desde el nombre del negocio (con sufijo si choca) y contraseña con hash Argon2id. Es la implementación de `ORB-A05` del backlog.
 - **Aislamiento multi-tenant** (`ORB-A09`, la historia de mayor consecuencia del backlog): filtro de consulta global de EF Core sobre un `ITenantContext` ambiental, más Row-Level Security de PostgreSQL activada sobre `memberships` (`current_setting('app.tenant_id')`), sincronizada por conexión desde `UnitOfWork`. Ver la nota en `Orbita.Infrastructure/Persistence/UnitOfWork.cs` y las pruebas de integración de aislamiento.
 - **Inicio y cierre de sesión** (`POST /api/auth/login|refresh|logout`, `GET /api/auth/me`): JWT de acceso de vida corta en cookie httpOnly, refresh token rotativo con detección de reutilización (revoca toda la familia si un token ya usado vuelve a presentarse), y bloqueo temporal tras intentos fallidos de login. Es la implementación de `ORB-A06`.
+- **Invitar miembros al equipo** (`POST /api/tenants/{tenantId}/invitations`, `resend`, `DELETE` para revocar, y `POST /api/invitations/accept` para aceptar): enlace de un solo uso que caduca a los 7 días, con detección de si el correo ya tiene cuenta (le pide confirmar su contraseña existente) o es nuevo (elige una). Aceptar deja a la persona logueada de una. Es la implementación de `ORB-A07`; el envío real de correo queda pendiente (no hay proveedor conectado todavía — se loguea el link en su lugar).
 
-Todavía no hay invitación de equipo ni roles/permisos aplicados (`ORB-A07`/`ORB-A08`), ni el resto del modelo de datos (conversaciones, mensajes, agentes de IA, pipeline de ventas, eventos) — se construye incrementalmente replicando el mismo patrón. El backlog completo de 61 historias está en [`../docs/Orbita-Historias-de-Usuario.pdf`](../docs/Orbita-Historias-de-Usuario.pdf).
+Todavía no hay roles/permisos aplicados de forma genérica (`ORB-A08`), ni el resto del modelo de datos (conversaciones, mensajes, agentes de IA, pipeline de ventas, eventos) — se construye incrementalmente replicando el mismo patrón. El backlog completo de 61 historias está en [`../docs/Orbita-Historias-de-Usuario.pdf`](../docs/Orbita-Historias-de-Usuario.pdf).
 
 ## Arquitectura
 
@@ -52,7 +53,7 @@ El backlog completo (61 historias, 4 desarrolladores, división vertical por mó
 
 | Track | Dueño | Módulos | Historias clave ya iniciadas |
 |---|---|---|---|
-| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión) |
+| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión), `ORB-A07` (invitaciones) |
 | B — Canales y Bandeja | Desarrollador 2 | Channels, Inbox, Notifications | — |
 | C — Agentes de IA | Desarrollador 3 | AI Agents | — |
 | D — CRM, Contenido y Analítica | Desarrollador 4 | CRM, Campaigns, Analytics, sitio público | — |
