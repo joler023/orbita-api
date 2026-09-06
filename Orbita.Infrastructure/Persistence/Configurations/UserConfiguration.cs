@@ -33,6 +33,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.FailedLoginAttempts).HasColumnName("failed_login_attempts").IsRequired();
         builder.Property(u => u.LockedUntil).HasColumnName("locked_until");
 
+        // Not in orbita-schema.dbml (added for ORB-A07 — see User.PasswordSetAt).
+        builder.Property(u => u.PasswordSetAt).HasColumnName("password_set_at");
+
         builder.Property(u => u.CreatedAt).HasColumnName("created_at").IsRequired();
     }
 }
