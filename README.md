@@ -21,7 +21,7 @@ Clean Architecture con dirección de dependencia estricta hacia el dominio:
 
 El modelo de datos completo (multi-tenant, aislamiento por `tenant_id`, log de eventos append-only, patrón Outbox, etc.) vive en `../docs/orbita-schema.dbml` y es la fuente de verdad para cualquier entidad nueva.
 
-Convenciones obligatorias de desarrollo (SOLID, tipado ultra estricto, testing, commits, branching) están en [`CLAUDE.md`](./CLAUDE.md).
+Convenciones obligatorias de desarrollo (SOLID, tipado ultra estricto, testing, commits, branching) están en [`CLAUDE.md`](./CLAUDE.md). Importante: los commits **nunca** llevan coautoría de IA (`Co-Authored-By`, `Claude-Session`, etc.) — el autor es siempre la persona.
 
 ## Requisitos
 
