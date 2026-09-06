@@ -62,26 +62,51 @@ Lo que **nunca se recorta** del MVP (ver el documento de backlog, sección "Resu
 
 ## Requisitos
 
-- .NET SDK 10
-- Docker (para Postgres local y para los tests de integración con Testcontainers)
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
+- Docker Desktop corriendo (para Postgres local y para los tests de integración con Testcontainers)
+- Git
 
-## Cómo correrlo
+No hace falta instalar `dotnet-ef` global — está pinneado en `dotnet-tools.json` y se restaura como herramienta local del repo (paso 1 abajo).
+
+## Cómo correrlo (de cero a API corriendo)
 
 ```bash
-# 1. Restaurar la herramienta de EF Core (una sola vez)
+# 0. Clonar y entrar al repo
+git clone <url-del-repo>
+cd Orbita
+
+# 1. Restaurar la herramienta de EF Core (una sola vez por clon)
 dotnet tool restore
 
-# 2. Levantar Postgres local (pgvector/pg_trgm/citext/pgcrypto incluidos)
+# 2. Restaurar paquetes NuGet y compilar, para detectar problemas de entorno temprano
+dotnet build Orbita.slnx
+
+# 3. Levantar Postgres local (pgvector/pg_trgm/citext/pgcrypto incluidos)
 docker compose up -d
 
-# 3. Aplicar migraciones
-dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api
+# 4. Confirmar que Postgres ya aceptó conexiones (el healthcheck tarda unos segundos)
+docker compose ps
 
-# 4. Correr la API (con hot reload)
+# 5. Aplicar migraciones (usa el rol admin/owner, no el rol de runtime — ver CLAUDE.md)
+dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api --connection "Host=localhost;Port=5432;Database=orbita_dev;Username=orbita;Password=orbita"
+
+# 6. Correr la API (con hot reload)
 dotnet watch run --project Orbita.Api
+
+# 7. (opcional pero recomendado) Correr toda la suite de pruebas para confirmar que el entorno quedó bien
+dotnet test Orbita.slnx
 ```
 
+`appsettings.Development.json` ya trae valores de desarrollo listos para usar (credenciales dummy, JWT de firma solo-dev) — no hace falta crear ningún `.env` ni secreto propio para correr el proyecto localmente.
+
 Con el entorno en `Development`, la documentación OpenAPI queda disponible vía Scalar en `/scalar/v1`.
+
+### Problemas comunes al levantar el entorno
+
+- **`docker compose up -d` falla o el healthcheck nunca pasa a "healthy"**: confirmar que Docker Desktop esté corriendo y que el puerto `5432` no esté ocupado por otra instancia de Postgres local (`docker compose down` y reintentar, o cambiar el puerto publicado en `docker-compose.yml` si de verdad lo necesitas ocupado para otra cosa).
+- **La migración falla con error de autenticación**: se está usando el rol equivocado. Migraciones siempre corren como `orbita` (dueño), nunca como `orbita_app` (runtime, sin permisos de DDL) — ver la nota "Two roles, two connection strings" en [`CLAUDE.md`](./CLAUDE.md).
+- **Los tests de integración fallan o se cuelgan**: casi siempre es que Docker no está corriendo — Testcontainers necesita el daemon disponible para levantar el Postgres efímero de cada corrida.
+- **Puerto 5432 ya en uso por otro proyecto**: bajar el otro contenedor/servicio o remapear el puerto publicado en `docker-compose.yml`; la app lee el host/puerto desde `ConnectionStrings:Postgres` en `appsettings.Development.json`.
 
 ## Comandos comunes
 
@@ -92,6 +117,42 @@ dotnet format Orbita.slnx                # formatear
 ```
 
 Ver [`CLAUDE.md`](./CLAUDE.md) para el detalle de comandos de migraciones, cómo correr un test puntual, y las reglas de arquitectura/negocio (incluidas las de `orbita-schema.dbml`, que son vinculantes) que aplican a todo código nuevo.
+
+Ver [`HANDOFF.md`](./HANDOFF.md) para una foto del estado actual del trabajo (qué historia está en curso, qué decisiones recientes no hay que reabrir, qué falta) — es lo primero que hay que leer al retomar el repo después de un tiempo sin tocarlo.
+
+## Plantilla de Pull Request
+
+Usar esta plantilla para todo PR de este repo (una historia de usuario por PR, una rama `feature/<nombre>` por historia — ver la convención de branching en `CLAUDE.md`):
+
+```markdown
+# [Nombre de la PR]
+
+## Historia de Usuario
+[HU-XX - Nombre de la tarea]
+
+## ¿Qué hace este PR?
+
+Descripción clara y concisa de los cambios realizados.
+
+## Cambios Realizados
+
+- [ ] Cambio 1
+- [ ] Cambio 2
+- [ ] Cambio 3
+
+## Cómo Probar
+
+1. Paso 1 para reproducir / verificar el comportamiento
+2. Paso 2
+3. Resultado esperado
+
+## Checklist
+
+- [ ] El código compila sin errores
+- [ ] Las pruebas pasan localmente
+- [ ] No se dejó código comentado ni console.log de depuración
+- [ ] La rama está actualizada con la rama base
+```
 
 ## Repos y documentos relacionados
 
