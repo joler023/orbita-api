@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: orbita_dev
+      POSTGRES_USER: orbita
+      POSTGRES_PASSWORD: orbita
+    ports:
+      - "5432:5432"
+    volumes:
+      - orbita_postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-extensions.sql:/docker-entrypoint-initdb.d/init-extensions.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbita -d orbita_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  orbita_postgres_data:
