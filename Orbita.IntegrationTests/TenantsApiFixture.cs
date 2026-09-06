@@ -2,8 +2,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
+using Orbita.Application.Identity;
 using Orbita.Infrastructure.Persistence;
+using Orbita.IntegrationTests.TestSupport;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -26,6 +31,13 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
         .WithPassword("orbita")
         .Build();
 
+    /// <summary>
+    /// No real email provider is wired up yet (ORB-A07) — this replaces the
+    /// logging-only sender so a test can get at the raw invitation token that would
+    /// otherwise only ever exist inside an email nobody sends.
+    /// </summary>
+    public CapturingInvitationEmailSender InvitationEmails { get; } = new();
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
@@ -45,6 +57,12 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             {
                 ["ConnectionStrings:Postgres"] = BuildAppConnectionString(),
             });
+        });
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IInvitationEmailSender>();
+            services.AddSingleton<IInvitationEmailSender>(InvitationEmails);
         });
     }
 
