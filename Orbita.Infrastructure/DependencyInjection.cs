@@ -1,7 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Identity;
+using Orbita.Domain.Common;
+using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
+using Orbita.Infrastructure.Identity;
 using Orbita.Infrastructure.Persistence;
 using Orbita.Infrastructure.Persistence.Repositories;
 
@@ -26,7 +30,15 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString);
         });
 
+        services.AddScoped<AmbientTenantContext>();
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<AmbientTenantContext>());
+        services.AddScoped<ITenantContextSetter>(sp => sp.GetRequiredService<AmbientTenantContext>());
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+
         services.AddScoped<ITenantRepository, TenantRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IMembershipRepository, MembershipRepository>();
+        services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
 
         return services;
     }
