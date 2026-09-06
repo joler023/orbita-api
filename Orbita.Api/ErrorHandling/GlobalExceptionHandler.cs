@@ -16,6 +16,8 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
         {
             TenantSlugAlreadyExistsException => (StatusCodes.Status409Conflict, "Tenant slug already exists"),
             EmailAlreadyRegisteredException => (StatusCodes.Status409Conflict, "Email already registered"),
+            InvalidCredentialsException => (StatusCodes.Status401Unauthorized, "Invalid credentials"),
+            InvalidRefreshTokenException => (StatusCodes.Status401Unauthorized, "Invalid refresh token"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
