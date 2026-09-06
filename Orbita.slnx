@@ -1,3 +1,8 @@
 <Solution>
   <Project Path="Orbita.Api/Orbita.Api.csproj" />
+  <Project Path="Orbita.Application/Orbita.Application.csproj" />
+  <Project Path="Orbita.Domain/Orbita.Domain.csproj" />
+  <Project Path="Orbita.Infrastructure/Orbita.Infrastructure.csproj" />
+  <Project Path="Orbita.IntegrationTests/Orbita.IntegrationTests.csproj" />
+  <Project Path="Orbita.UnitTests/Orbita.UnitTests.csproj" />
 </Solution>
