@@ -11,6 +11,12 @@ public sealed class TenantRepository(OrbitaDbContext dbContext) : ITenantReposit
     public Task<bool> SlugExistsAsync(string slug, CancellationToken cancellationToken)
         => dbContext.Tenants.AnyAsync(t => t.Slug == slug, cancellationToken);
 
+    public async Task<IReadOnlyList<Guid>> ListActiveIdsAsync(CancellationToken cancellationToken)
+        => await dbContext.Tenants
+            .Where(t => t.IsActive)
+            .Select(t => t.Id)
+            .ToListAsync(cancellationToken);
+
     public async Task AddAsync(Tenant tenant, CancellationToken cancellationToken)
         => await dbContext.Tenants.AddAsync(tenant, cancellationToken);
 
