@@ -12,4 +12,7 @@ public enum Permission
 
     /// <summary>Invite, resend, revoke, change the role of, or remove team members.</summary>
     ManageTeam,
+
+    /// <summary>Subscribe to, change, or cancel the tenant's plan; view invoices (ORB-A12).</summary>
+    ManageBilling,
 }
