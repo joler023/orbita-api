@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ITenantSettingsService, TenantSettingsService>();
         services.AddScoped<IPipelineService, PipelineService>();
+        services.AddScoped<IOpportunityService, OpportunityService>();
 
         return services;
     }
