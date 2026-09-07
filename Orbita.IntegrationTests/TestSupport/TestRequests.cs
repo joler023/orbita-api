@@ -33,6 +33,26 @@ public static class TestRequests
         return (email, password);
     }
 
+    /// <summary>Registers a fresh organization and logs its owner in, ready to drive tenant-scoped endpoints.</summary>
+    public static async Task<(string Email, string Password, Guid TenantId, CookieJar Cookies)> RegisterAndLogInOwnerAsync(
+        HttpClient client,
+        string businessName = "Acme Corp")
+    {
+        const string password = "correct-horse-battery";
+        var email = $"{Guid.NewGuid():N}@acme.com";
+        var registerResponse = await client.PostAsJsonAsync(
+            "/api/organizations",
+            new RegisterOrganizationRequest(businessName, "Jane Doe", email, password));
+        registerResponse.EnsureSuccessStatusCode();
+        var registered = await registerResponse.Content.ReadFromJsonAsync<RegisterOrganizationResult>();
+
+        var cookies = new CookieJar();
+        var loginResponse = await SendAsync(client, HttpMethod.Post, "/api/auth/login", cookies, new LoginRequest(email, password));
+        loginResponse.EnsureSuccessStatusCode();
+
+        return (email, password, registered!.TenantId, cookies);
+    }
+
     public static async Task<HttpResponseMessage> SendAsync(
         HttpClient client,
         HttpMethod method,

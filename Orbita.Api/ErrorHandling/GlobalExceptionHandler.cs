@@ -23,6 +23,8 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvitationNotFoundException => (StatusCodes.Status404NotFound, "Invitation not found"),
             InvalidInvitationException => (StatusCodes.Status400BadRequest, "Invalid invitation"),
             InvalidPasswordResetException => (StatusCodes.Status400BadRequest, "Invalid password reset"),
+            MemberNotFoundException => (StatusCodes.Status404NotFound, "Member not found"),
+            CannotRemoveLastOwnerException => (StatusCodes.Status409Conflict, "Cannot remove last owner"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

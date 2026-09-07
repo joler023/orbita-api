@@ -63,4 +63,14 @@ public sealed class MembershipTests
 
         Assert.False(membership.IsActive);
     }
+
+    [Fact]
+    public void ChangeRole_UpdatesTheRole()
+    {
+        var membership = Membership.CreateOwner(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+
+        membership.ChangeRole(MemberRole.Admin);
+
+        Assert.Equal(MemberRole.Admin, membership.Role);
+    }
 }
