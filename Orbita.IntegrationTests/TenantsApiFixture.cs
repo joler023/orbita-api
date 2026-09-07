@@ -48,7 +48,7 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
         await _postgres.StartAsync();
 
         var adminOptions = new DbContextOptionsBuilder<OrbitaDbContext>()
-            .UseNpgsql(_postgres.GetConnectionString())
+            .UseNpgsql(_postgres.GetConnectionString(), npgsql => npgsql.UseVector())
             .Options;
         await using var migrationContext = new OrbitaDbContext(adminOptions, new AmbientTenantContext());
         await migrationContext.Database.MigrateAsync();

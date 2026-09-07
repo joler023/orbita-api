@@ -29,7 +29,7 @@ public sealed class DocxTextExtractor : ITextExtractor
         {
             using var document = WordprocessingDocument.Open(buffer, isEditable: false);
 
-            var body = document.MainDocumentPart?.Document.Body;
+            var body = document.MainDocumentPart?.Document?.Body;
 
             if (body is null)
             {
