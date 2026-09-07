@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<IDocumentChunkBuilder, DocumentChunkBuilder>();
         services.AddScoped<IKnowledgeIndexer, KnowledgeIndexer>();
         services.AddScoped<IKnowledgeDocumentService, KnowledgeDocumentService>();
+        services.AddScoped<IKnowledgeSearchService, KnowledgeSearchService>();
 
         return services;
     }
