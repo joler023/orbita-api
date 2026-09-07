@@ -18,6 +18,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<InvitationToken> InvitationTokens => Set<InvitationToken>();
 
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);

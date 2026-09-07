@@ -40,9 +40,11 @@ public static class DependencyInjection
         services.AddScoped<IMembershipRepository, MembershipRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IInvitationTokenRepository, InvitationTokenRepository>();
+        services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
+        services.AddSingleton<IPasswordResetEmailSender, LoggingPasswordResetEmailSender>();
 
         return services;
     }
