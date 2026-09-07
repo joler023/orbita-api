@@ -15,7 +15,20 @@ public sealed class TenantTests
         Assert.Equal("America/Bogota", tenant.Timezone);
         Assert.Equal("es-CO", tenant.Locale);
         Assert.True(tenant.IsActive);
+        Assert.False(tenant.RequireMfaForMembers);
         Assert.Equal(tenant.CreatedAt, tenant.UpdatedAt);
+    }
+
+    [Fact]
+    public void SetRequireMfaForMembers_UpdatesFlagAndTimestamp()
+    {
+        var tenant = Tenant.Create("acme", "Acme", now: DateTimeOffset.UnixEpoch);
+        var later = DateTimeOffset.UnixEpoch.AddDays(1);
+
+        tenant.SetRequireMfaForMembers(true, later);
+
+        Assert.True(tenant.RequireMfaForMembers);
+        Assert.Equal(later, tenant.UpdatedAt);
     }
 
     [Theory]

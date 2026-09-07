@@ -16,6 +16,8 @@ public static class DependencyInjection
         services.AddScoped<ITeamInvitationService, TeamInvitationService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ITeamMembersService, TeamMembersService>();
+        services.AddScoped<ITwoFactorService, TwoFactorService>();
+        services.AddScoped<ITenantSettingsService, TenantSettingsService>();
 
         return services;
     }

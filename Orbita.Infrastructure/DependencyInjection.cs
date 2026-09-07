@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,10 +42,14 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IInvitationTokenRepository, InvitationTokenRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+        services.AddScoped<ITwoFactorBackupCodeRepository, TwoFactorBackupCodeRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
         services.AddSingleton<IPasswordResetEmailSender, LoggingPasswordResetEmailSender>();
+        services.AddSingleton<ITotpProvider, OtpTotpProvider>();
+        services.AddDataProtection();
+        services.AddSingleton<IUserSecretProtector, DataProtectionUserSecretProtector>();
 
         return services;
     }
