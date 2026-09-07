@@ -6,7 +6,7 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — `ORB-D05` (tablero de oportunidades) en `feature/d05-oportunidades`, apilada sobre `feature/d04-pipelines`.
+**2026-09-07** — `ORB-D02` (ficha de contacto) en `feature/d02-contactos`, apilada sobre `feature/d05-oportunidades`.
 
 ## Qué está implementado
 
@@ -15,8 +15,8 @@ Ver la sección "Qué hay implementado hoy" en [`README.md`](./README.md) — se
 Track D (CRM — dueño de pipelines/contactos en este repo, vertical full-stack):
 
 - [x] `ORB-D04` Pipelines y etapas — default `Ventas` al registrar
-- [x] `ORB-D05` Tablero de oportunidades — create/move + SignalR; ficha de contacto sigue pendiente
-- [ ] `ORB-D02` Ficha de contacto (depende también de `ORB-B03`)
+- [x] `ORB-D05` Tablero de oportunidades — create/move + SignalR
+- [x] `ORB-D02` Ficha de contacto — listado, dedup por teléfono/Instagram, campos custom, vínculo a oportunidades; historial de conversación queda para Track B
 - [ ] `ORB-D06` Crear oportunidad desde la conversación (depende de `ORB-D05` y `ORB-B13`)
 - [ ] `ORB-D03` Búsqueda de contactos
 

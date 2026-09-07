@@ -35,6 +35,10 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<Opportunity> Opportunities => Set<Opportunity>();
 
+    public DbSet<Contact> Contacts => Set<Contact>();
+
+    public DbSet<ContactFieldDefinition> ContactFieldDefinitions => Set<ContactFieldDefinition>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -61,5 +65,11 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<Opportunity>()
             .HasQueryFilter(o => tenantContext.TenantId == null || o.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Contact>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<ContactFieldDefinition>()
+            .HasQueryFilter(f => tenantContext.TenantId == null || f.TenantId == tenantContext.TenantId);
     }
 }
