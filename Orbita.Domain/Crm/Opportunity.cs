@@ -18,6 +18,7 @@ public sealed class Opportunity : Entity
         string title,
         decimal? amount,
         Guid? assignedToUserId,
+        Guid? contactId,
         Guid? lastMoveEventId,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt)
@@ -29,6 +30,7 @@ public sealed class Opportunity : Entity
         Title = title;
         Amount = amount;
         AssignedToUserId = assignedToUserId;
+        ContactId = contactId;
         LastMoveEventId = lastMoveEventId;
         CreatedAt = createdAt;
         UpdatedAt = updatedAt;
@@ -45,6 +47,8 @@ public sealed class Opportunity : Entity
     public decimal? Amount { get; private set; }
 
     public Guid? AssignedToUserId { get; private set; }
+
+    public Guid? ContactId { get; private set; }
 
     /// <summary>
     /// Last client-generated move id applied to this card (ORB-D05). Repeating the
@@ -64,7 +68,8 @@ public sealed class Opportunity : Entity
         string title,
         decimal? amount,
         DateTimeOffset now,
-        Guid? assignedToUserId = null)
+        Guid? assignedToUserId = null,
+        Guid? contactId = null)
     {
         if (tenantId == Guid.Empty)
         {
@@ -94,6 +99,7 @@ public sealed class Opportunity : Entity
             RequireTitle(title),
             amount,
             assignedToUserId,
+            contactId,
             lastMoveEventId: null,
             now,
             now);
@@ -143,6 +149,12 @@ public sealed class Opportunity : Entity
     public void AssignTo(Guid? userId, DateTimeOffset now)
     {
         AssignedToUserId = userId;
+        UpdatedAt = now;
+    }
+
+    public void LinkContact(Guid? contactId, DateTimeOffset now)
+    {
+        ContactId = contactId;
         UpdatedAt = now;
     }
 

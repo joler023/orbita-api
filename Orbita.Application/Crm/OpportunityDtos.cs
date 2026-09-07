@@ -8,6 +8,7 @@ public sealed record OpportunitySummary(
     decimal? Amount,
     Guid? AssignedToUserId,
     string? AssignedToName,
+    Guid? ContactId,
     Guid? LastMoveEventId,
     DateTimeOffset CreatedAt);
 
@@ -34,12 +35,15 @@ public sealed record CreateOpportunityRequest(
     string Title,
     decimal? Amount,
     Guid? StageId,
-    Guid? AssignedToUserId);
+    Guid? AssignedToUserId,
+    Guid? ContactId = null);
 
 public sealed record UpdateOpportunityRequest(
     string? Title,
     decimal? Amount,
     Guid? AssignedToUserId,
-    bool ClearAssignee = false);
+    bool ClearAssignee = false,
+    Guid? ContactId = null,
+    bool ClearContact = false);
 
 public sealed record MoveOpportunityRequest(Guid StageId, Guid EventId);

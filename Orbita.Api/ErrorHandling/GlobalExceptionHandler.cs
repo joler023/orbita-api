@@ -44,6 +44,9 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvalidStageRelocateException => (StatusCodes.Status400BadRequest, "Invalid stage relocate"),
             OpportunityNotFoundException => (StatusCodes.Status404NotFound, "Opportunity not found"),
             AssigneeNotInTenantException => (StatusCodes.Status400BadRequest, "Assignee not in tenant"),
+            ContactNotFoundException => (StatusCodes.Status404NotFound, "Contact not found"),
+            ContactAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact already exists"),
+            ContactFieldAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact field already exists"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

@@ -10,6 +10,7 @@ public sealed class OpportunityService(
     IPipelineRepository pipelineRepository,
     IPipelineStageRepository stageRepository,
     IOpportunityRepository opportunityRepository,
+    IContactRepository contactRepository,
     IMembershipRepository membershipRepository,
     IUserRepository userRepository,
     ITenantAuthorizationService authorizationService,
@@ -81,6 +82,7 @@ public sealed class OpportunityService(
             : stages.OrderBy(s => s.SortOrder).FirstOrDefault() ?? throw new StageNotFoundException();
 
         await EnsureAssigneeAsync(tenantId, request.AssignedToUserId, cancellationToken);
+        await EnsureContactAsync(tenantId, request.ContactId, cancellationToken);
 
         var now = timeProvider.GetUtcNow();
         var opportunity = Opportunity.Create(
@@ -90,7 +92,8 @@ public sealed class OpportunityService(
             request.Title,
             request.Amount,
             now,
-            request.AssignedToUserId);
+            request.AssignedToUserId,
+            request.ContactId);
 
         await opportunityRepository.AddAsync(opportunity, cancellationToken);
         await auditLogger.RecordAsync(
@@ -140,6 +143,16 @@ public sealed class OpportunityService(
         {
             await EnsureAssigneeAsync(tenantId, request.AssignedToUserId, cancellationToken);
             opportunity.AssignTo(request.AssignedToUserId, now);
+        }
+
+        if (request.ClearContact)
+        {
+            opportunity.LinkContact(null, now);
+        }
+        else if (request.ContactId is not null)
+        {
+            await EnsureContactAsync(tenantId, request.ContactId, cancellationToken);
+            opportunity.LinkContact(request.ContactId, now);
         }
 
         await auditLogger.RecordAsync(
@@ -200,6 +213,23 @@ public sealed class OpportunityService(
             new OpportunityChangedEvent(OpportunityChangedKind.Moved, request.EventId, summary),
             cancellationToken);
         return summary;
+    }
+
+    private async Task EnsureContactAsync(Guid tenantId, Guid? contactId, CancellationToken cancellationToken)
+    {
+        if (contactId is null)
+        {
+            return;
+        }
+
+        var contact = await unitOfWork.QueryInTenantScopeAsync(
+            ct => contactRepository.GetByIdAsync(contactId.Value, ct),
+            cancellationToken);
+
+        if (contact is null || contact.TenantId != tenantId)
+        {
+            throw new ContactNotFoundException();
+        }
     }
 
     private async Task EnsureAssigneeAsync(Guid tenantId, Guid? userId, CancellationToken cancellationToken)
@@ -282,6 +312,7 @@ public sealed class OpportunityService(
             opportunity.AssignedToUserId is { } assigneeId && names.TryGetValue(assigneeId, out var name)
                 ? name
                 : null,
+            opportunity.ContactId,
             opportunity.LastMoveEventId,
             opportunity.CreatedAt);
 }

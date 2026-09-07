@@ -56,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<IPipelineRepository, PipelineRepository>();
         services.AddScoped<IPipelineStageRepository, PipelineStageRepository>();
         services.AddScoped<IOpportunityRepository, OpportunityRepository>();
+        services.AddScoped<IContactRepository, ContactRepository>();
+        services.AddScoped<IContactFieldDefinitionRepository, ContactFieldDefinitionRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();

@@ -17,6 +17,26 @@ public sealed class OpportunityRepository(OrbitaDbContext dbContext) : IOpportun
     public Task<Opportunity?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => dbContext.Opportunities.SingleOrDefaultAsync(o => o.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<Opportunity>> GetByContactAsync(Guid contactId, CancellationToken cancellationToken)
+        => await dbContext.Opportunities
+            .Where(o => o.ContactId == contactId)
+            .OrderByDescending(o => o.UpdatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Opportunity>> GetByContactIdsAsync(
+        IReadOnlyCollection<Guid> contactIds,
+        CancellationToken cancellationToken)
+    {
+        if (contactIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await dbContext.Opportunities
+            .Where(o => o.ContactId != null && contactIds.Contains(o.ContactId.Value))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Opportunity>> GetByPipelineAsync(
         Guid pipelineId,
         Guid? assignedToUserId,

@@ -16,6 +16,7 @@ public sealed class OpportunityServiceTests
     private readonly Mock<IPipelineRepository> _pipelines = new();
     private readonly Mock<IPipelineStageRepository> _stages = new();
     private readonly Mock<IOpportunityRepository> _opportunities = new();
+    private readonly Mock<IContactRepository> _contacts = new();
     private readonly Mock<IMembershipRepository> _memberships = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
@@ -47,11 +48,15 @@ public sealed class OpportunityServiceTests
         _unitOfWork
             .Setup(u => u.QueryInTenantScopeAsync(It.IsAny<Func<CancellationToken, Task<Membership?>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<Membership?>> query, CancellationToken ct) => query(ct));
+        _unitOfWork
+            .Setup(u => u.QueryInTenantScopeAsync(It.IsAny<Func<CancellationToken, Task<Contact?>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<Contact?>> query, CancellationToken ct) => query(ct));
 
         _sut = new OpportunityService(
             _pipelines.Object,
             _stages.Object,
             _opportunities.Object,
+            _contacts.Object,
             _memberships.Object,
             _users.Object,
             _authorization.Object,
@@ -152,6 +157,27 @@ public sealed class OpportunityServiceTests
                 _callerId,
                 pipeline.Id,
                 new CreateOpportunityRequest("Sitio", 100m, null, Guid.NewGuid()),
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithUnknownContact_Throws()
+    {
+        var pipeline = Pipeline.Create(_tenantId, "Ventas", true, Now);
+        var stage = PipelineStage.Create(_tenantId, pipeline.Id, "Nuevo", 0, false, false, Now);
+        _pipelines.Setup(r => r.GetByIdAsync(pipeline.Id, It.IsAny<CancellationToken>())).ReturnsAsync(pipeline);
+        _stages.Setup(r => r.GetByPipelineAsync(pipeline.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<PipelineStage>)[stage]);
+        _contacts
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Contact?)null);
+
+        await Assert.ThrowsAsync<ContactNotFoundException>(() =>
+            _sut.CreateAsync(
+                _tenantId,
+                _callerId,
+                pipeline.Id,
+                new CreateOpportunityRequest("Sitio", 100m, null, null, Guid.NewGuid()),
                 CancellationToken.None));
     }
 }

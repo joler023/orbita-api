@@ -10,6 +10,12 @@ public interface IOpportunityRepository
 
     Task<Opportunity?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<Opportunity>> GetByContactAsync(Guid contactId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<Opportunity>> GetByContactIdsAsync(
+        IReadOnlyCollection<Guid> contactIds,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<Opportunity>> GetByPipelineAsync(
         Guid pipelineId,
         Guid? assignedToUserId,
