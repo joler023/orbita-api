@@ -6,23 +6,13 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — **cambio de foco: este repo pasa a ser Track C · Agentes de IA (Desarrollador 3).** Track A queda construido pero ya no es frente de trabajo; sus huecos conocidos se listan abajo como deuda, no como pendientes activos.
-
-`ORB-C01` (abstracción de proveedor de modelos) está terminada en la rama `feature/llm-provider-abstraction`, sin mergear todavía. Suite en verde: 184 unitarias (175 previas + 9 nuevas) y 25 pruebas de los adaptadores de IA, que no necesitan Docker. Las 62 de integración con Postgres no se corrieron en esta sesión porque Docker no estaba levantado.
+**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
 
 ## Qué está implementado
 
 Ver la sección "Qué hay implementado hoy" en [`README.md`](./README.md) — se mantiene sincronizada ahí, no se duplica aquí.
 
-Track C (Agentes de IA — **foco actual**):
-
-- [x] `ORB-C01` Abstracción de proveedor de modelos
-- [ ] `ORB-C02` Base de conocimiento — **es lo siguiente**
-- [ ] `ORB-C03` Búsqueda semántica
-- [ ] `ORB-C04`…`ORB-C09` Runtime del agente — bloqueadas por otros tracks (ver abajo)
-- [ ] `ORB-C10`/`ORB-C11` Constructor de agentes y banco de pruebas — el frontend ya los está planeando en `orbita`
-
-Track A (Plataforma, Identidad y Facturación — construido, sin trabajo activo):
+Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 
 - [x] `ORB-A05` Registro de organización
 - [x] `ORB-A09` Aislamiento entre organizaciones
@@ -36,18 +26,7 @@ Track A (Plataforma, Identidad y Facturación — construido, sin trabajo activo
 - [ ] `ORB-A13` Medición de consumo — necesita que exista Track C (agentes de IA) primero
 - [ ] `ORB-A14` Límites del plan — depende de A12 (listo) y A13 (no)
 
-### El muro de dependencias de Track C
-
-Solo la Épica C1 (`C01` → `C02` → `C03`) es ejecutable sin nadie más — el backlog la marca como "Fase 0 · sin esperar a nadie". Lo demás está bloqueado por tracks que no existen:
-
-| Historia | Bloqueada por | Qué falta |
-|---|---|---|
-| `ORB-C04` El agente responde | `ORB-B03` (Track B) | No hay `conversations` ni `messages` |
-| `ORB-C05` El agente ejecuta acciones | `ORB-D05` (Track D) | No hay pipeline ni `deals` |
-| `ORB-C07` Traspaso a humano | `ORB-B15` (Track B) | No hay asignación de conversaciones |
-| `ORB-C09` Registro de consumo de IA | `ORB-A13` | Medición de consumo, que a su vez espera a Track C |
-
-Por eso el orden real de trabajo es `C02` → `C03`, y después reevaluar.
+Con esto, el track de Desarrollador 1 queda sin historias P1 pendientes que no dependan de otro track. Lo que sigue (`ORB-A13`/`ORB-A14`) necesita que Track C construya los agentes de IA primero, o (P2, `ORB-A11` ya cubierto) no hay más trabajo aislado obvio — la próxima sesión debería confirmar con el resto del equipo antes de inventar alcance nuevo aquí.
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
@@ -77,15 +56,4 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-A12`: ni Stripe ni Wompi tienen credenciales reales conectadas**, y Wompi todavía no tiene forma de cobrar de manera recurrente (no existe el scheduler). Ver la sección "Billing" de `CLAUDE.md`.
 - **`ORB-A11`: política de MFA de tenant sin aplicar** — el flag existe y se puede configurar, pero ningún login lo respeta todavía (misma causa raíz que el JWT sin claim de tenant).
 - **`ORB-A15`: la bitácora solo cubre cambios de rol y remoción de miembros por ahora** — es el patrón de referencia, no una cobertura exhaustiva. Engancharla a más acciones sensibles (facturación, configuración de tenant, etc.) es trabajo incremental de una línea por caso, no una historia nueva.
-- **`orbita-front` ya no está en scaffold** — la rama `feature/d01-dashboard-shell` (sin mergear) trae cliente HTTP con cookie auth, sistema de diseño, pantallas de registro/login y el shell autenticado. Su sesión de Claude está planeando `ORB-C10`/`ORB-C11`.
-- **Deuda de contrato con el frontend, detectada y no resuelta** (queda fuera de Track C, pero está verificada y hay que arreglarla antes de que el front se conecte de verdad):
-  - `app.UseHttpsRedirection()` está fuera del bloque `IsDevelopment()` en `Program.cs`, así que con el perfil `https` activo `http://localhost:5091` responde 307 y le rompe al front la base URL y el preflight de CORS.
-  - Los correos generan `/reset-password?token=` y `/accept-invite?token=` (`LoggingPasswordResetEmailSender.cs`, `LoggingInvitationEmailSender.cs`), pero el front tiene rutas en español (`/recuperar`) y no tiene `/accept-invite`.
-  - `ProblemDetails` solo lleva `title` en inglés, y el front mapea su copy en español contra ese string — renombrar un título lo degrada a mensaje genérico en silencio. Falta una extensión `code` estable.
-  - No hay endpoint de "mis organizaciones" ni rol del usuario en `GET /api/auth/me` (solo devuelve `userId`). Es el bloqueo nº 1 declarado por el frontend.
-  - `POST /api/tenants` sigue sin `[Authorize]`.
-- **`dotnet format` no corre en este entorno**: el build host de la herramienta pide el runtime `10.0.11` y no lo encuentra en `C:\Users\juanr\.dotnet\`. Es un problema del SDK instalado, no del código.
-
-### Sobre los proveedores de IA (`ORB-C01`)
-
-Ninguno cuesta dinero hoy. Ollama corre local en `localhost:11434` (hay que tener `ollama pull llama3.1` y `ollama pull nomic-embed-text`), y el adaptador OpenAI-compatible viene con `BaseUrl` vacío, así que se reporta como no configurado y la capa de resiliencia lo salta — mismo patrón que Stripe/Wompi sin credenciales. Para apuntarlo a un proveedor de pago basta con llenar `Ai:Providers:OpenAiCompatible:BaseUrl`, `ApiKey` y **los precios por millón de tokens**; sin esos precios el costo se registra como 0 y `ai_runs` va a subestimar el gasto.
+- **`orbita-front` sigue en scaffold** — no hay cliente HTTP ni pantallas reales todavía, así que ningún endpoint de este repo tiene todavía un consumidor real más allá de las pruebas de integración.
