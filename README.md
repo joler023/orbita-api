@@ -27,6 +27,7 @@ Sobre esa base ya existe el arranque de **Identity & Tenancy** (track del Desarr
 - **Invitar miembros al equipo** (`POST /api/tenants/{tenantId}/invitations`, `resend`, `DELETE` para revocar, y `POST /api/invitations/accept` para aceptar): enlace de un solo uso que caduca a los 7 días, con detección de si el correo ya tiene cuenta (le pide confirmar su contraseña existente) o es nuevo (elige una). Aceptar deja a la persona logueada de una. Es la implementación de `ORB-A07`; el envío real de correo queda pendiente (no hay proveedor conectado todavía — se loguea el link en su lugar).
 - **Recuperación de contraseña** (`POST /api/auth/forgot-password`, `POST /api/auth/reset-password`): enlace de un solo uso que caduca en una hora, respuesta idéntica exista o no la cuenta (no filtra qué correos están registrados), y al restablecer se invalidan todas las sesiones activas de la persona, no solo la que pidió el cambio. Es la implementación de `ORB-A10`.
 - **Roles y permisos** (`GET /api/tenants/{tenantId}/members`, `PATCH .../members/{membershipId}/role`, `DELETE .../members/{membershipId}`): matriz de permisos por rol (`owner`/`admin`/`agent`/`viewer`) aplicada en el backend a través de un servicio de autorización compartido, con la regla de que un tenant nunca se queda sin al menos un owner activo. Es la implementación de `ORB-A08`; generaliza el chequeo "owner o admin" que `ORB-A07` había dejado en línea.
+- **Bitácora de auditoría** (`GET /api/tenants/{tenantId}/audit-log`, filtrable por entidad, actor y rango de fechas): tabla `audit_log` append-only (sin UPDATE ni DELETE, reforzado también a nivel de base de datos), que registra actor, acción, entidad y diferencia. Es la implementación de `ORB-A15`. Por ahora solo los cambios de rol y la remoción de miembros del equipo quedan auditados — el patrón (`IAuditLogger`) está listo para engancharse a cualquier otra acción sensible a medida que se vaya necesitando.
 
 Todavía no hay el resto del modelo de datos (conversaciones, mensajes, agentes de IA, pipeline de ventas, eventos) — se construye incrementalmente replicando el mismo patrón. El backlog completo de 61 historias está en [`../docs/Orbita-Historias-de-Usuario.pdf`](../docs/Orbita-Historias-de-Usuario.pdf).
 
@@ -55,7 +56,7 @@ El backlog completo (61 historias, 4 desarrolladores, división vertical por mó
 
 | Track | Dueño | Módulos | Historias clave ya iniciadas |
 |---|---|---|---|
-| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión), `ORB-A07` (invitaciones), `ORB-A08` (roles y permisos), `ORB-A10` (recuperación de contraseña) |
+| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión), `ORB-A07` (invitaciones), `ORB-A08` (roles y permisos), `ORB-A10` (recuperación de contraseña), `ORB-A15` (bitácora de auditoría) |
 | B — Canales y Bandeja | Desarrollador 2 | Channels, Inbox, Notifications | — |
 | C — Agentes de IA | Desarrollador 3 | AI Agents | — |
 | D — CRM, Contenido y Analítica | Desarrollador 4 | CRM, Campaigns, Analytics, sitio público | — |
