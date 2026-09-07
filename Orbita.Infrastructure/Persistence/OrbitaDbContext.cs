@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Orbita.Domain.Billing;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
@@ -19,6 +20,10 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     public DbSet<InvitationToken> InvitationTokens => Set<InvitationToken>();
 
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+
+    public DbSet<Plan> Plans => Set<Plan>();
+
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

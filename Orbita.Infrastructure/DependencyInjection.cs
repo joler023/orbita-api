@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Billing;
 using Orbita.Application.Identity;
+using Orbita.Domain.Billing;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
+using Orbita.Infrastructure.Billing;
 using Orbita.Infrastructure.Identity;
 using Orbita.Infrastructure.Persistence;
 using Orbita.Infrastructure.Persistence.Repositories;
@@ -41,10 +44,20 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IInvitationTokenRepository, InvitationTokenRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+        services.AddScoped<IPlanRepository, PlanRepository>();
+        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
         services.AddSingleton<IPasswordResetEmailSender, LoggingPasswordResetEmailSender>();
+
+        // Both payment rails are registered under the same IPaymentProvider interface
+        // — SubscriptionService resolves the right one from IEnumerable<IPaymentProvider>
+        // by Kind. Neither has real credentials configured yet (see appsettings'
+        // empty Billing:Stripe/Billing:Wompi sections and CLAUDE.md's Billing section).
+        services.AddScoped<IPaymentProvider, StripePaymentProvider>();
+        services.AddHttpClient<WompiPaymentProvider>();
+        services.AddScoped<IPaymentProvider>(sp => sp.GetRequiredService<WompiPaymentProvider>());
 
         return services;
     }
