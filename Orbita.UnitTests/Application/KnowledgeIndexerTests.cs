@@ -3,7 +3,6 @@ using Moq;
 using Orbita.Application.Ai;
 using Orbita.Domain.Ai;
 using Orbita.Domain.Common;
-using Orbita.Domain.Tenants;
 using Orbita.UnitTests.TestSupport;
 
 namespace Orbita.UnitTests.Application;
@@ -17,7 +16,7 @@ public sealed class KnowledgeIndexerTests
     private static readonly DateTimeOffset Now = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
     private static readonly Guid TenantId = Guid.NewGuid();
 
-    private readonly Mock<ITenantRepository> _tenants = new();
+    private readonly Mock<IKnowledgeIndexingQueue> _queue = new();
     private readonly Mock<IKnowledgeDocumentRepository> _documents = new();
     private readonly Mock<IDocumentChunkBuilder> _chunkBuilder = new();
     private readonly Mock<ITenantContextSetter> _tenantContextSetter = new();
@@ -29,22 +28,22 @@ public sealed class KnowledgeIndexerTests
 
     public KnowledgeIndexerTests()
     {
-        _tenants.Setup(t => t.ListActiveIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync([TenantId]);
+        _queue.Setup(q => q.PeekAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([KnowledgeIndexingQueueEntry.For(_document, Now)]);
 
-        _documents.Setup(d => d.ListPendingAsync(TenantId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([_document]);
+        _documents.Setup(d => d.GetByIdAsync(TenantId, _document.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_document);
 
         // QueryInTenantScopeAsync just runs the query in these tests; the real transaction
         // behaviour is covered by the integration suite.
         _unitOfWork
             .Setup(u => u.QueryInTenantScopeAsync(
-                It.IsAny<Func<CancellationToken, Task<IReadOnlyList<KnowledgeDocument>>>>(),
+                It.IsAny<Func<CancellationToken, Task<KnowledgeDocument?>>>(),
                 It.IsAny<CancellationToken>()))
-            .Returns((Func<CancellationToken, Task<IReadOnlyList<KnowledgeDocument>>> query, CancellationToken ct) => query(ct));
+            .Returns((Func<CancellationToken, Task<KnowledgeDocument?>> query, CancellationToken ct) => query(ct));
 
         _sut = new KnowledgeIndexer(
-            _tenants.Object,
+            _queue.Object,
             _documents.Object,
             _chunkBuilder.Object,
             _tenantContextSetter.Object,
@@ -106,6 +105,8 @@ public sealed class KnowledgeIndexerTests
         Assert.Equal(0, indexed);
         Assert.Equal(KnowledgeDocStatus.Pending, _document.Status);
         Assert.Null(_document.FailureReason);
+        // Still queued: the next pass retries it.
+        _queue.Verify(q => q.RemoveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -123,26 +124,56 @@ public sealed class KnowledgeIndexerTests
     }
 
     [Fact]
-    public async Task A_tenant_with_nothing_pending_is_simply_skipped()
+    public async Task An_empty_queue_costs_one_query_and_nothing_else()
     {
-        _documents.Setup(d => d.ListPendingAsync(TenantId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        _queue.Setup(q => q.PeekAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         Assert.Equal(0, await _sut.IndexPendingAsync(CancellationToken.None));
         _chunkBuilder.Verify(b => b.BuildAsync(It.IsAny<KnowledgeDocument>(), It.IsAny<CancellationToken>()), Times.Never);
+        _tenantContextSetter.Verify(s => s.SetTenant(It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
-    public async Task Every_tenant_gets_its_own_scope_in_one_pass()
+    public async Task A_finished_document_is_dropped_from_the_queue_without_being_reindexed()
+    {
+        // What a crash between "indexed" and "dequeued" leaves behind. Re-embedding it
+        // would cost real money for no reason.
+        _document.MarkIndexed(3, Now);
+
+        var indexed = await _sut.IndexPendingAsync(CancellationToken.None);
+
+        Assert.Equal(0, indexed);
+        _chunkBuilder.Verify(b => b.BuildAsync(It.IsAny<KnowledgeDocument>(), It.IsAny<CancellationToken>()), Times.Never);
+        _queue.Verify(q => q.RemoveAsync(_document.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_deleted_document_is_dropped_from_the_queue()
+    {
+        _documents.Setup(d => d.GetByIdAsync(TenantId, _document.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((KnowledgeDocument?)null);
+
+        Assert.Equal(0, await _sut.IndexPendingAsync(CancellationToken.None));
+        _queue.Verify(q => q.RemoveAsync(_document.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Documents_from_different_tenants_each_get_their_own_scope()
     {
         var otherTenantId = Guid.NewGuid();
-        _tenants.Setup(t => t.ListActiveIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync([TenantId, otherTenantId]);
-        _documents.Setup(d => d.ListPendingAsync(otherTenantId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-        _chunkBuilder.Setup(b => b.BuildAsync(_document, It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var otherDocument = KnowledgeDocument.Create(
+            otherTenantId, Guid.NewGuid(), "Otro", KnowledgeDocSourceType.Manual, "otro.txt", Now);
 
-        await _sut.IndexPendingAsync(CancellationToken.None);
+        _queue.Setup(q => q.PeekAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                KnowledgeIndexingQueueEntry.For(_document, Now),
+                KnowledgeIndexingQueueEntry.For(otherDocument, Now),
+            ]);
+        _documents.Setup(d => d.GetByIdAsync(otherTenantId, otherDocument.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(otherDocument);
+        _chunkBuilder.Setup(b => b.BuildAsync(It.IsAny<KnowledgeDocument>(), It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        Assert.Equal(2, await _sut.IndexPendingAsync(CancellationToken.None));
 
         _tenantContextSetter.Verify(s => s.SetTenant(TenantId), Times.Once);
         _tenantContextSetter.Verify(s => s.SetTenant(otherTenantId), Times.Once);

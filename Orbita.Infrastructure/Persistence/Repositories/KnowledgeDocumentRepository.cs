@@ -27,14 +27,4 @@ public sealed class KnowledgeDocumentRepository(OrbitaDbContext dbContext) : IKn
             .OrderByDescending(d => d.CreatedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
-
-    public async Task<IReadOnlyList<KnowledgeDocument>> ListPendingAsync(
-        Guid tenantId,
-        int limit,
-        CancellationToken cancellationToken)
-        => await dbContext.KnowledgeDocuments
-            .Where(d => d.TenantId == tenantId && d.Status == KnowledgeDocStatus.Pending)
-            .OrderBy(d => d.CreatedAt)
-            .Take(limit)
-            .ToListAsync(cancellationToken);
 }

@@ -37,6 +37,9 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<AiRun> AiRuns => Set<AiRun>();
 
+    /// <summary>Deliberately has no query filter — see KnowledgeIndexingQueueEntry.</summary>
+    public DbSet<KnowledgeIndexingQueueEntry> KnowledgeIndexingQueue => Set<KnowledgeIndexingQueueEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);

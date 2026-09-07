@@ -12,6 +12,7 @@ public sealed class KnowledgeDocumentService(
     IAiAgentRepository agentRepository,
     IKnowledgeDocumentRepository documentRepository,
     IKnowledgeChunkRepository chunkRepository,
+    IKnowledgeIndexingQueue indexingQueue,
     IKnowledgeDocumentStorage storage,
     ITenantAuthorizationService authorizationService,
     IUnitOfWork unitOfWork,
@@ -66,6 +67,9 @@ public sealed class KnowledgeDocumentService(
             timeProvider.GetUtcNow());
 
         documentRepository.Add(document);
+        // Queued in the same transaction as the document, so the queue can never point at
+        // a row that was rolled back.
+        indexingQueue.Enqueue(KnowledgeIndexingQueueEntry.For(document, timeProvider.GetUtcNow()));
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return KnowledgeDocumentDto.From(document);
@@ -100,6 +104,7 @@ public sealed class KnowledgeDocumentService(
             timeProvider.GetUtcNow());
 
         documentRepository.Add(document);
+        indexingQueue.Enqueue(KnowledgeIndexingQueueEntry.For(document, timeProvider.GetUtcNow()));
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return KnowledgeDocumentDto.From(document);
@@ -152,6 +157,7 @@ public sealed class KnowledgeDocumentService(
             ct => chunkRepository.DeleteByDocumentAsync(tenantId, documentId, ct),
             cancellationToken);
         document.MarkForReindex();
+        indexingQueue.Enqueue(KnowledgeIndexingQueueEntry.For(document, timeProvider.GetUtcNow()));
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return KnowledgeDocumentDto.From(document);

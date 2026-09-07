@@ -289,10 +289,25 @@ public sealed class KnowledgeBaseApiTests(TenantsApiFixture fixture) : IClassFix
         Assert.All(runs, run => Assert.True(run.TokensIn > 0));
     }
 
+    /// <summary>
+    /// Drains the queue rather than running a single batch. Tests in this class share one
+    /// fixture, so the queue holds whatever earlier tests left in it — one batch is not
+    /// guaranteed to reach the document the current test cares about. The real worker
+    /// loops continuously, so draining is also the more faithful simulation.
+    /// </summary>
     private async Task RunIndexerAsync()
     {
-        using var scope = fixture.Services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<IKnowledgeIndexer>().IndexPendingAsync(CancellationToken.None);
+        // Bounded so a document that can never finish cannot hang the suite.
+        for (var pass = 0; pass < 20; pass++)
+        {
+            using var scope = fixture.Services.CreateScope();
+            var indexer = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexer>();
+
+            if (await indexer.IndexPendingAsync(CancellationToken.None) == 0)
+            {
+                return;
+            }
+        }
     }
 
     private async Task<int> CountChunksAsync(Guid tenantId, Guid documentId)

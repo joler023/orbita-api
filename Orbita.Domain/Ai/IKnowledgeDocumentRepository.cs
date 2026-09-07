@@ -21,14 +21,4 @@ public interface IKnowledgeDocumentRepository
         int limit,
         CancellationToken cancellationToken);
 
-    /// <summary>
-    /// Documents waiting to be indexed in one tenant, oldest first.
-    ///
-    /// Scoped to a single tenant on purpose. The background indexer has no ambient tenant
-    /// of its own, and Row Level Security returns <em>zero</em> rows — not all rows — when
-    /// none is set, so a cross-tenant "find all pending work" query would silently do
-    /// nothing against the real database. The indexer therefore walks the tenant list and
-    /// asks each one in turn, rather than bypassing RLS (which CLAUDE.md rules out).
-    /// </summary>
-    Task<IReadOnlyList<KnowledgeDocument>> ListPendingAsync(Guid tenantId, int limit, CancellationToken cancellationToken);
 }
