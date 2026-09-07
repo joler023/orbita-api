@@ -1,4 +1,5 @@
 using Moq;
+using Orbita.Application.Audit;
 using Orbita.Application.Identity;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
@@ -12,6 +13,7 @@ public sealed class TeamMembersServiceTests
     private readonly Mock<IMembershipRepository> _memberships = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
+    private readonly Mock<IAuditLogger> _auditLogger = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly TeamMembersService _sut;
 
@@ -30,7 +32,7 @@ public sealed class TeamMembersServiceTests
             .Setup(u => u.QueryInTenantScopeAsync(It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<int>> query, CancellationToken ct) => query(ct));
 
-        _sut = new TeamMembersService(_memberships.Object, _users.Object, _authorization.Object, _unitOfWork.Object);
+        _sut = new TeamMembersService(_memberships.Object, _users.Object, _authorization.Object, _auditLogger.Object, _unitOfWork.Object);
     }
 
     [Fact]
@@ -79,6 +81,9 @@ public sealed class TeamMembersServiceTests
         Assert.Equal(MemberRole.Admin, membership.Role);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _memberships.Verify(r => r.CountActiveByTenantAndRoleAsync(It.IsAny<Guid>(), It.IsAny<MemberRole>(), It.IsAny<CancellationToken>()), Times.Never);
+        _auditLogger.Verify(
+            a => a.RecordAsync(_tenantId, _callerId, "membership.role_changed", nameof(Membership), membership.Id, It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -143,6 +148,9 @@ public sealed class TeamMembersServiceTests
 
         Assert.False(membership.IsActive);
         _memberships.Verify(r => r.CountActiveByTenantAndRoleAsync(It.IsAny<Guid>(), It.IsAny<MemberRole>(), It.IsAny<CancellationToken>()), Times.Never);
+        _auditLogger.Verify(
+            a => a.RecordAsync(_tenantId, _callerId, "membership.removed", nameof(Membership), membership.Id, It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
