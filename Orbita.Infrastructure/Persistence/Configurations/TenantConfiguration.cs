@@ -41,6 +41,11 @@ public sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
             .IsRequired();
 
         builder.Property(t => t.IsActive).HasColumnName("is_active").IsRequired();
+
+        // Not in orbita-schema.dbml (added for ORB-A11). See Tenant.RequireMfaForMembers
+        // for why this isn't enforced at login yet.
+        builder.Property(t => t.RequireMfaForMembers).HasColumnName("require_mfa_for_members").IsRequired();
+
         builder.Property(t => t.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(t => t.UpdatedAt).HasColumnName("updated_at").IsRequired();
     }

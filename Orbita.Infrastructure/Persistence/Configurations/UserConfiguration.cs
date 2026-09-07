@@ -36,6 +36,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // Not in orbita-schema.dbml (added for ORB-A07 — see User.PasswordSetAt).
         builder.Property(u => u.PasswordSetAt).HasColumnName("password_set_at");
 
+        // Not in orbita-schema.dbml (added for ORB-A11). The ciphertext, never the
+        // raw secret, is what's persisted — see IUserSecretProtector.
+        builder.Property(u => u.TwoFactorSecretCiphertext).HasColumnName("two_factor_secret_ciphertext");
+        builder.Property(u => u.TwoFactorEnabledAt).HasColumnName("two_factor_enabled_at");
+
         builder.Property(u => u.CreatedAt).HasColumnName("created_at").IsRequired();
     }
 }
