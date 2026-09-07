@@ -1,4 +1,5 @@
 using Orbita.Domain.Ai;
+using Orbita.Domain.Common;
 
 namespace Orbita.Application.Ai;
 
@@ -13,7 +14,8 @@ public sealed class DocumentChunkBuilder(
     ITextChunker chunker,
     ILlmProvider llmProvider,
     IAiRunRecorder runRecorder,
-    IKnowledgeChunkRepository chunkRepository) : IDocumentChunkBuilder
+    IKnowledgeChunkRepository chunkRepository,
+    IUnitOfWork unitOfWork) : IDocumentChunkBuilder
 {
     public async Task<int> BuildAsync(KnowledgeDocument document, CancellationToken cancellationToken)
     {
@@ -33,8 +35,13 @@ public sealed class DocumentChunkBuilder(
         }
 
         // Cleared first so a retry after a partial failure cannot leave two generations
-        // of the same document matching the same search.
-        await chunkRepository.DeleteByDocumentAsync(document.TenantId, document.Id, cancellationToken);
+        // of the same document matching the same search. Wrapped because a bulk delete
+        // runs immediately rather than inside the indexer's SaveChangesAsync, so without
+        // a tenant-scoped transaction RLS would match zero rows and silently delete
+        // nothing.
+        await unitOfWork.ExecuteInTenantScopeAsync(
+            ct => chunkRepository.DeleteByDocumentAsync(document.TenantId, document.Id, ct),
+            cancellationToken);
 
         var chunks = new List<KnowledgeChunk>(pieces.Count);
 

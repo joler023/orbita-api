@@ -146,8 +146,11 @@ public sealed class KnowledgeDocumentService(
 
         // The old chunks go now rather than when the indexer picks the document up: until
         // it does, searches would otherwise still match content the user has already been
-        // told is being replaced.
-        await chunkRepository.DeleteByDocumentAsync(tenantId, documentId, cancellationToken);
+        // told is being replaced. Wrapped because a bulk delete runs immediately, outside
+        // SaveChangesAsync's transaction, and RLS would match nothing without a tenant.
+        await unitOfWork.ExecuteInTenantScopeAsync(
+            ct => chunkRepository.DeleteByDocumentAsync(tenantId, documentId, ct),
+            cancellationToken);
         document.MarkForReindex();
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -160,7 +163,9 @@ public sealed class KnowledgeDocumentService(
 
         var document = await RequireDocumentAsync(tenantId, documentId, cancellationToken);
 
-        await chunkRepository.DeleteByDocumentAsync(tenantId, documentId, cancellationToken);
+        await unitOfWork.ExecuteInTenantScopeAsync(
+            ct => chunkRepository.DeleteByDocumentAsync(tenantId, documentId, ct),
+            cancellationToken);
         documentRepository.Remove(document);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
