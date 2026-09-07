@@ -15,12 +15,13 @@ public interface ITwoFactorService
     /// raw — only their hashes are persisted).
     /// </summary>
     /// <exception cref="InvalidTwoFactorCodeException">The code doesn't match.</exception>
+    /// <exception cref="TwoFactorSetupNotStartedException">BeginSetupAsync was never called.</exception>
     Task<IReadOnlyList<string>> ConfirmSetupAsync(Guid userId, string code, CancellationToken cancellationToken);
 
     /// <exception cref="InvalidCredentialsException">The password is wrong.</exception>
     Task DisableAsync(Guid userId, string currentPassword, CancellationToken cancellationToken);
 
-    /// <exception cref="InvalidOperationException">Two-factor isn't enabled for this user.</exception>
+    /// <exception cref="TwoFactorNotEnabledException">Two-factor isn't enabled for this user.</exception>
     Task<IReadOnlyList<string>> RegenerateBackupCodesAsync(Guid userId, CancellationToken cancellationToken);
 
     /// <summary>

@@ -91,7 +91,7 @@ public sealed class TwoFactorServiceTests
         var user = NewUser();
         _users.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.ConfirmSetupAsync(user.Id, "123456", CancellationToken.None));
+        await Assert.ThrowsAsync<TwoFactorSetupNotStartedException>(() => _sut.ConfirmSetupAsync(user.Id, "123456", CancellationToken.None));
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class TwoFactorServiceTests
         var user = NewUser();
         _users.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.RegenerateBackupCodesAsync(user.Id, CancellationToken.None));
+        await Assert.ThrowsAsync<TwoFactorNotEnabledException>(() => _sut.RegenerateBackupCodesAsync(user.Id, CancellationToken.None));
     }
 
     [Fact]

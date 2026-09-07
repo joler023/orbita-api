@@ -34,7 +34,7 @@ public sealed class TwoFactorService(
         var user = await RequireUserAsync(userId, cancellationToken);
         if (user.TwoFactorSecretCiphertext is null)
         {
-            throw new InvalidOperationException("Two-factor setup has not been started for this user.");
+            throw new TwoFactorSetupNotStartedException();
         }
 
         var secret = secretProtector.Unprotect(user.TwoFactorSecretCiphertext);
@@ -69,7 +69,7 @@ public sealed class TwoFactorService(
         var user = await RequireUserAsync(userId, cancellationToken);
         if (!user.HasTwoFactorEnabled)
         {
-            throw new InvalidOperationException("Two-factor authentication is not enabled for this user.");
+            throw new TwoFactorNotEnabledException();
         }
 
         var now = timeProvider.GetUtcNow();
