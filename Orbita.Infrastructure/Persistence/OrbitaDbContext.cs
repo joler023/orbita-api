@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Orbita.Domain.Audit;
+using Orbita.Domain.Billing;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
@@ -18,6 +20,14 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<InvitationToken> InvitationTokens => Set<InvitationToken>();
 
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+
+    public DbSet<AuditLogEntry> AuditLogEntries => Set<AuditLogEntry>();
+    public DbSet<Plan> Plans => Set<Plan>();
+
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<TwoFactorBackupCode> TwoFactorBackupCodes => Set<TwoFactorBackupCode>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -32,5 +42,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
         // the DbContext.
         modelBuilder.Entity<Membership>()
             .HasQueryFilter(m => tenantContext.TenantId == null || m.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<AuditLogEntry>()
+            .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
     }
 }

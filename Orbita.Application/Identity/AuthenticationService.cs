@@ -15,6 +15,7 @@ public sealed class AuthenticationService(
     IRefreshTokenRepository refreshTokenRepository,
     IAccessTokenIssuer accessTokenIssuer,
     IPasswordHasher passwordHasher,
+    ITwoFactorService twoFactorService,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IAuthenticationService
 {
@@ -39,6 +40,28 @@ public sealed class AuthenticationService(
             user.RegisterFailedLogin(now, MaxFailedLoginAttempts, LockoutDuration);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             throw new InvalidCredentialsException();
+        }
+
+        if (user.HasTwoFactorEnabled)
+        {
+            if (string.IsNullOrWhiteSpace(request.TwoFactorCode))
+            {
+                // The password was right — this is not a fact worth hiding the way a
+                // wrong password or unknown email is, so it gets its own exception
+                // instead of folding into InvalidCredentialsException (ORB-A11).
+                throw new TwoFactorRequiredException();
+            }
+
+            if (!await twoFactorService.VerifyLoginCodeAsync(user.Id, request.TwoFactorCode, cancellationToken))
+            {
+                // A wrong code at this point *is* folded back into the generic
+                // failure, and counts against the same lockout counter as a wrong
+                // password — brute-forcing the second factor should be exactly as
+                // expensive as brute-forcing the first.
+                user.RegisterFailedLogin(now, MaxFailedLoginAttempts, LockoutDuration);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                throw new InvalidCredentialsException();
+            }
         }
 
         user.ResetFailedLogins();

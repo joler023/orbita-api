@@ -15,6 +15,7 @@ public sealed class AuthenticationServiceTests
     private readonly Mock<IRefreshTokenRepository> _refreshTokens = new();
     private readonly Mock<IAccessTokenIssuer> _accessTokenIssuer = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
+    private readonly Mock<ITwoFactorService> _twoFactor = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly AuthenticationService _sut;
 
@@ -27,6 +28,7 @@ public sealed class AuthenticationServiceTests
             _refreshTokens.Object,
             _accessTokenIssuer.Object,
             _passwordHasher.Object,
+            _twoFactor.Object,
             _unitOfWork.Object,
             new FixedTimeProvider(Now));
     }
@@ -102,6 +104,54 @@ public sealed class AuthenticationServiceTests
             () => _sut.LoginAsync(new LoginRequest("jane@acme.com", "correct-horse-battery"), CancellationToken.None));
 
         _passwordHasher.Verify(h => h.Verify(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithTwoFactorEnabledAndNoCode_ThrowsTwoFactorRequired()
+    {
+        var user = NewUser();
+        user.BeginTwoFactorSetup("ciphertext");
+        user.EnableTwoFactor(Now);
+        _users.Setup(r => r.GetByEmailAsync("jane@acme.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _passwordHasher.Setup(h => h.Verify("stored-hash", "correct-horse-battery")).Returns(true);
+
+        await Assert.ThrowsAsync<TwoFactorRequiredException>(
+            () => _sut.LoginAsync(new LoginRequest("jane@acme.com", "correct-horse-battery"), CancellationToken.None));
+
+        _refreshTokens.Verify(r => r.AddAsync(It.IsAny<RefreshToken>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithTwoFactorEnabledAndAValidCode_IssuesTokens()
+    {
+        var user = NewUser();
+        user.BeginTwoFactorSetup("ciphertext");
+        user.EnableTwoFactor(Now);
+        _users.Setup(r => r.GetByEmailAsync("jane@acme.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _passwordHasher.Setup(h => h.Verify("stored-hash", "correct-horse-battery")).Returns(true);
+        _twoFactor.Setup(t => t.VerifyLoginCodeAsync(user.Id, "123456", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await _sut.LoginAsync(new LoginRequest("jane@acme.com", "correct-horse-battery", "123456"), CancellationToken.None);
+
+        Assert.Equal(user.Id, result.UserId);
+        _refreshTokens.Verify(r => r.AddAsync(It.IsAny<RefreshToken>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithTwoFactorEnabledAndAWrongCode_RegistersFailureAndThrowsInvalidCredentials()
+    {
+        var user = NewUser();
+        user.BeginTwoFactorSetup("ciphertext");
+        user.EnableTwoFactor(Now);
+        _users.Setup(r => r.GetByEmailAsync("jane@acme.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _passwordHasher.Setup(h => h.Verify("stored-hash", "correct-horse-battery")).Returns(true);
+        _twoFactor.Setup(t => t.VerifyLoginCodeAsync(user.Id, "000000", It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<InvalidCredentialsException>(
+            () => _sut.LoginAsync(new LoginRequest("jane@acme.com", "correct-horse-battery", "000000"), CancellationToken.None));
+
+        Assert.Equal(1, user.FailedLoginAttempts);
+        _refreshTokens.Verify(r => r.AddAsync(It.IsAny<RefreshToken>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

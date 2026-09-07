@@ -25,8 +25,13 @@ Sobre esa base ya existe el arranque de **Identity & Tenancy** (track del Desarr
 - **Aislamiento multi-tenant** (`ORB-A09`, la historia de mayor consecuencia del backlog): filtro de consulta global de EF Core sobre un `ITenantContext` ambiental, más Row-Level Security de PostgreSQL activada sobre `memberships` (`current_setting('app.tenant_id')`), sincronizada por conexión desde `UnitOfWork`. Ver la nota en `Orbita.Infrastructure/Persistence/UnitOfWork.cs` y las pruebas de integración de aislamiento.
 - **Inicio y cierre de sesión** (`POST /api/auth/login|refresh|logout`, `GET /api/auth/me`): JWT de acceso de vida corta en cookie httpOnly, refresh token rotativo con detección de reutilización (revoca toda la familia si un token ya usado vuelve a presentarse), y bloqueo temporal tras intentos fallidos de login. Es la implementación de `ORB-A06`.
 - **Invitar miembros al equipo** (`POST /api/tenants/{tenantId}/invitations`, `resend`, `DELETE` para revocar, y `POST /api/invitations/accept` para aceptar): enlace de un solo uso que caduca a los 7 días, con detección de si el correo ya tiene cuenta (le pide confirmar su contraseña existente) o es nuevo (elige una). Aceptar deja a la persona logueada de una. Es la implementación de `ORB-A07`; el envío real de correo queda pendiente (no hay proveedor conectado todavía — se loguea el link en su lugar).
+- **Recuperación de contraseña** (`POST /api/auth/forgot-password`, `POST /api/auth/reset-password`): enlace de un solo uso que caduca en una hora, respuesta idéntica exista o no la cuenta (no filtra qué correos están registrados), y al restablecer se invalidan todas las sesiones activas de la persona, no solo la que pidió el cambio. Es la implementación de `ORB-A10`.
+- **Roles y permisos** (`GET /api/tenants/{tenantId}/members`, `PATCH .../members/{membershipId}/role`, `DELETE .../members/{membershipId}`): matriz de permisos por rol (`owner`/`admin`/`agent`/`viewer`) aplicada en el backend a través de un servicio de autorización compartido, con la regla de que un tenant nunca se queda sin al menos un owner activo. Es la implementación de `ORB-A08`; generaliza el chequeo "owner o admin" que `ORB-A07` había dejado en línea.
+- **Bitácora de auditoría** (`GET /api/tenants/{tenantId}/audit-log`, filtrable por entidad, actor y rango de fechas): tabla `audit_log` append-only (sin UPDATE ni DELETE, reforzado también a nivel de base de datos), que registra actor, acción, entidad y diferencia. Es la implementación de `ORB-A15`. Por ahora solo los cambios de rol y la remoción de miembros del equipo quedan auditados — el patrón (`IAuditLogger`) está listo para engancharse a cualquier otra acción sensible a medida que se vaya necesitando.
+- **Planes y suscripción** (`GET /api/plans`, `POST|PATCH|DELETE /api/tenants/{tenantId}/subscription`, `GET .../subscription/invoices`, webhooks en `/api/billing/webhooks/{stripe|wompi}`): catálogo de 3 planes sembrado en la migración, integración real contra Stripe (internacional) y Wompi (Colombia) detrás de un mismo puerto `IPaymentProvider`, cambio de plan con prorrateo automático vía Stripe. Es la implementación de `ORB-A12`. **Ninguna de las dos integraciones tiene credenciales reales conectadas todavía** — el código está listo, pero conectar una cuenta real (y, para Wompi, construir el scheduler de recobro periódico que todavía no existe) queda pendiente; ver la sección "Billing" de `CLAUDE.md` para el detalle exacto de qué falta.
+- **Verificación en dos pasos** (`POST /api/auth/2fa/setup|confirm|disable`, `POST /api/auth/2fa/backup-codes/regenerate`): TOTP con QR (el backend entrega la URI `otpauth://`, el frontend dibuja el código), 10 códigos de respaldo de un solo uso, y el login exige el segundo factor cuando está activado. Es la implementación de `ORB-A11`. El owner puede exigir MFA a todo el equipo (`PATCH /api/tenants/{tenantId}/settings/mfa-policy`), pero esa política **todavía no se aplica en tiempo real** — hacerlo bien requiere resolver antes a qué tenant pertenece una sesión al momento de iniciar sesión, la misma decisión pendiente que dejó sin claim de tenant al JWT (ver `CLAUDE.md`).
 
-Todavía no hay roles/permisos aplicados de forma genérica (`ORB-A08`), ni el resto del modelo de datos (conversaciones, mensajes, agentes de IA, pipeline de ventas, eventos) — se construye incrementalmente replicando el mismo patrón. El backlog completo de 61 historias está en [`../docs/Orbita-Historias-de-Usuario.pdf`](../docs/Orbita-Historias-de-Usuario.pdf).
+Todavía no hay el resto del modelo de datos (conversaciones, mensajes, agentes de IA, pipeline de ventas, eventos) — se construye incrementalmente replicando el mismo patrón. El backlog completo de 61 historias está en [`../docs/Orbita-Historias-de-Usuario.pdf`](../docs/Orbita-Historias-de-Usuario.pdf).
 
 ## Arquitectura
 
@@ -53,7 +58,7 @@ El backlog completo (61 historias, 4 desarrolladores, división vertical por mó
 
 | Track | Dueño | Módulos | Historias clave ya iniciadas |
 |---|---|---|---|
-| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión), `ORB-A07` (invitaciones) |
+| A — Plataforma, Identidad y Facturación | Desarrollador 1 | Platform, Identity & Tenancy, Billing, Audit | `ORB-A05` (registro), `ORB-A09` (aislamiento), `ORB-A06` (sesión), `ORB-A07` (invitaciones), `ORB-A08` (roles y permisos), `ORB-A10` (recuperación de contraseña), `ORB-A11` (2FA), `ORB-A12` (planes y suscripción), `ORB-A15` (bitácora de auditoría) |
 | B — Canales y Bandeja | Desarrollador 2 | Channels, Inbox, Notifications | — |
 | C — Agentes de IA | Desarrollador 3 | AI Agents | — |
 | D — CRM, Contenido y Analítica | Desarrollador 4 | CRM, Campaigns, Analytics, sitio público | — |
@@ -62,26 +67,51 @@ Lo que **nunca se recorta** del MVP (ver el documento de backlog, sección "Resu
 
 ## Requisitos
 
-- .NET SDK 10
-- Docker (para Postgres local y para los tests de integración con Testcontainers)
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
+- Docker Desktop corriendo (para Postgres local y para los tests de integración con Testcontainers)
+- Git
 
-## Cómo correrlo
+No hace falta instalar `dotnet-ef` global — está pinneado en `dotnet-tools.json` y se restaura como herramienta local del repo (paso 1 abajo).
+
+## Cómo correrlo (de cero a API corriendo)
 
 ```bash
-# 1. Restaurar la herramienta de EF Core (una sola vez)
+# 0. Clonar y entrar al repo
+git clone <url-del-repo>
+cd Orbita
+
+# 1. Restaurar la herramienta de EF Core (una sola vez por clon)
 dotnet tool restore
 
-# 2. Levantar Postgres local (pgvector/pg_trgm/citext/pgcrypto incluidos)
+# 2. Restaurar paquetes NuGet y compilar, para detectar problemas de entorno temprano
+dotnet build Orbita.slnx
+
+# 3. Levantar Postgres local (pgvector/pg_trgm/citext/pgcrypto incluidos)
 docker compose up -d
 
-# 3. Aplicar migraciones
-dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api
+# 4. Confirmar que Postgres ya aceptó conexiones (el healthcheck tarda unos segundos)
+docker compose ps
 
-# 4. Correr la API (con hot reload)
+# 5. Aplicar migraciones (usa el rol admin/owner, no el rol de runtime — ver CLAUDE.md)
+dotnet tool run dotnet-ef database update --project Orbita.Infrastructure --startup-project Orbita.Api --connection "Host=localhost;Port=5432;Database=orbita_dev;Username=orbita;Password=orbita"
+
+# 6. Correr la API (con hot reload)
 dotnet watch run --project Orbita.Api
+
+# 7. (opcional pero recomendado) Correr toda la suite de pruebas para confirmar que el entorno quedó bien
+dotnet test Orbita.slnx
 ```
 
+`appsettings.Development.json` ya trae valores de desarrollo listos para usar (credenciales dummy, JWT de firma solo-dev) — no hace falta crear ningún `.env` ni secreto propio para correr el proyecto localmente.
+
 Con el entorno en `Development`, la documentación OpenAPI queda disponible vía Scalar en `/scalar/v1`.
+
+### Problemas comunes al levantar el entorno
+
+- **`docker compose up -d` falla o el healthcheck nunca pasa a "healthy"**: confirmar que Docker Desktop esté corriendo y que el puerto `5432` no esté ocupado por otra instancia de Postgres local (`docker compose down` y reintentar, o cambiar el puerto publicado en `docker-compose.yml` si de verdad lo necesitas ocupado para otra cosa).
+- **La migración falla con error de autenticación**: se está usando el rol equivocado. Migraciones siempre corren como `orbita` (dueño), nunca como `orbita_app` (runtime, sin permisos de DDL) — ver la nota "Two roles, two connection strings" en [`CLAUDE.md`](./CLAUDE.md).
+- **Los tests de integración fallan o se cuelgan**: casi siempre es que Docker no está corriendo — Testcontainers necesita el daemon disponible para levantar el Postgres efímero de cada corrida.
+- **Puerto 5432 ya en uso por otro proyecto**: bajar el otro contenedor/servicio o remapear el puerto publicado en `docker-compose.yml`; la app lee el host/puerto desde `ConnectionStrings:Postgres` en `appsettings.Development.json`.
 
 ## Comandos comunes
 
@@ -92,6 +122,42 @@ dotnet format Orbita.slnx                # formatear
 ```
 
 Ver [`CLAUDE.md`](./CLAUDE.md) para el detalle de comandos de migraciones, cómo correr un test puntual, y las reglas de arquitectura/negocio (incluidas las de `orbita-schema.dbml`, que son vinculantes) que aplican a todo código nuevo.
+
+Ver [`HANDOFF.md`](./HANDOFF.md) para una foto del estado actual del trabajo (qué historia está en curso, qué decisiones recientes no hay que reabrir, qué falta) — es lo primero que hay que leer al retomar el repo después de un tiempo sin tocarlo.
+
+## Plantilla de Pull Request
+
+Usar esta plantilla para todo PR de este repo (una historia de usuario por PR, una rama `feature/<nombre>` por historia — ver la convención de branching en `CLAUDE.md`):
+
+```markdown
+# [Nombre de la PR]
+
+## Historia de Usuario
+[HU-XX - Nombre de la tarea]
+
+## ¿Qué hace este PR?
+
+Descripción clara y concisa de los cambios realizados.
+
+## Cambios Realizados
+
+- [ ] Cambio 1
+- [ ] Cambio 2
+- [ ] Cambio 3
+
+## Cómo Probar
+
+1. Paso 1 para reproducir / verificar el comportamiento
+2. Paso 2
+3. Resultado esperado
+
+## Checklist
+
+- [ ] El código compila sin errores
+- [ ] Las pruebas pasan localmente
+- [ ] No se dejó código comentado ni console.log de depuración
+- [ ] La rama está actualizada con la rama base
+```
 
 ## Repos y documentos relacionados
 

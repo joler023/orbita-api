@@ -20,7 +20,7 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
     public async Task Invite_ThenAccept_LetsTheNewPersonLogInAfterward()
     {
         var client = TestRequests.CreateClient(_fixture);
-        var (_, _, tenantId, ownerCookies) = await RegisterAndLogInOwnerAsync(client);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var inviteeEmail = $"{Guid.NewGuid():N}@acme.com";
 
         var inviteResponse = await TestRequests.SendAsync(
@@ -59,7 +59,7 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
     public async Task Invite_ByANonAdminMember_ReturnsForbidden()
     {
         var client = TestRequests.CreateClient(_fixture);
-        var (_, _, tenantId, ownerCookies) = await RegisterAndLogInOwnerAsync(client);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
 
         // Invite a plain Agent, accept as them, then try to invite someone else as that Agent.
         var agentEmail = $"{Guid.NewGuid():N}@acme.com";
@@ -84,7 +84,7 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
     public async Task Invite_SameEmailTwice_ReturnsConflict()
     {
         var client = TestRequests.CreateClient(_fixture);
-        var (_, _, tenantId, ownerCookies) = await RegisterAndLogInOwnerAsync(client);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var inviteeEmail = $"{Guid.NewGuid():N}@acme.com";
         await TestRequests.SendAsync(
             client, HttpMethod.Post, $"/api/tenants/{tenantId}/invitations", ownerCookies, new InviteTeamMemberRequest(inviteeEmail, MemberRole.Agent));
@@ -99,7 +99,7 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
     public async Task Resend_IssuesANewTokenAndInvalidatesTheOldOne()
     {
         var client = TestRequests.CreateClient(_fixture);
-        var (_, _, tenantId, ownerCookies) = await RegisterAndLogInOwnerAsync(client);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var inviteeEmail = $"{Guid.NewGuid():N}@acme.com";
         var inviteResponse = await TestRequests.SendAsync(
             client, HttpMethod.Post, $"/api/tenants/{tenantId}/invitations", ownerCookies, new InviteTeamMemberRequest(inviteeEmail, MemberRole.Agent));
@@ -127,7 +127,7 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
     public async Task Revoke_MakesTheInvitationUnacceptable()
     {
         var client = TestRequests.CreateClient(_fixture);
-        var (_, _, tenantId, ownerCookies) = await RegisterAndLogInOwnerAsync(client);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var inviteeEmail = $"{Guid.NewGuid():N}@acme.com";
         var inviteResponse = await TestRequests.SendAsync(
             client, HttpMethod.Post, $"/api/tenants/{tenantId}/invitations", ownerCookies, new InviteTeamMemberRequest(inviteeEmail, MemberRole.Agent));
@@ -154,22 +154,5 @@ public sealed class TeamInvitationsControllerTests : IClassFixture<TenantsApiFix
             new AcceptInvitationRequest("not-a-real-token", "Someone", "some-password-123"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    private static async Task<(string Email, string Password, Guid TenantId, CookieJar Cookies)> RegisterAndLogInOwnerAsync(HttpClient client)
-    {
-        const string password = "correct-horse-battery";
-        var email = $"{Guid.NewGuid():N}@acme.com";
-        var registerResponse = await client.PostAsJsonAsync(
-            "/api/organizations",
-            new RegisterOrganizationRequest("Acme Corp", "Jane Doe", email, password));
-        registerResponse.EnsureSuccessStatusCode();
-        var registered = await registerResponse.Content.ReadFromJsonAsync<RegisterOrganizationResult>();
-
-        var cookies = new CookieJar();
-        var loginResponse = await TestRequests.SendAsync(client, HttpMethod.Post, "/api/auth/login", cookies, new LoginRequest(email, password));
-        loginResponse.EnsureSuccessStatusCode();
-
-        return (email, password, registered!.TenantId, cookies);
     }
 }

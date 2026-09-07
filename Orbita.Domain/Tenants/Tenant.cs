@@ -17,6 +17,7 @@ public sealed class Tenant : Entity
         string timezone,
         string locale,
         bool isActive,
+        bool requireMfaForMembers,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt)
         : base(id)
@@ -27,6 +28,7 @@ public sealed class Tenant : Entity
         Timezone = timezone;
         Locale = locale;
         IsActive = isActive;
+        RequireMfaForMembers = requireMfaForMembers;
         CreatedAt = createdAt;
         UpdatedAt = updatedAt;
     }
@@ -42,6 +44,16 @@ public sealed class Tenant : Entity
     public string Locale { get; private set; }
 
     public bool IsActive { get; private set; }
+
+    /// <summary>
+    /// Owner-set policy that every member of this tenant must have two-factor
+    /// authentication enabled (ORB-A11). Not enforced at login yet — doing so
+    /// correctly needs to know which tenant a session is acting as *before* tokens
+    /// are issued, which login deliberately does not resolve today (see the missing
+    /// JWT tenant claim, CLAUDE.md "Authentication (ORB-A06)"). This flag exists so
+    /// the setting can be configured now and enforced later without a data migration.
+    /// </summary>
+    public bool RequireMfaForMembers { get; private set; }
 
     public DateTimeOffset CreatedAt { get; }
 
@@ -65,6 +77,7 @@ public sealed class Tenant : Entity
             RequireLength(timezone, nameof(timezone), 1, 64),
             RequireLength(locale, nameof(locale), 1, 10),
             isActive: true,
+            requireMfaForMembers: false,
             createdAt: effectiveNow,
             updatedAt: effectiveNow);
     }
@@ -84,6 +97,12 @@ public sealed class Tenant : Entity
     public void Activate(DateTimeOffset now)
     {
         IsActive = true;
+        UpdatedAt = now;
+    }
+
+    public void SetRequireMfaForMembers(bool required, DateTimeOffset now)
+    {
+        RequireMfaForMembers = required;
         UpdatedAt = now;
     }
 

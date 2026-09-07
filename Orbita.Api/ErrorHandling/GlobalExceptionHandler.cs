@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -22,6 +23,17 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
             InvitationNotFoundException => (StatusCodes.Status404NotFound, "Invitation not found"),
             InvalidInvitationException => (StatusCodes.Status400BadRequest, "Invalid invitation"),
+            InvalidPasswordResetException => (StatusCodes.Status400BadRequest, "Invalid password reset"),
+            MemberNotFoundException => (StatusCodes.Status404NotFound, "Member not found"),
+            CannotRemoveLastOwnerException => (StatusCodes.Status409Conflict, "Cannot remove last owner"),
+            PlanNotFoundException => (StatusCodes.Status404NotFound, "Plan not found"),
+            SubscriptionNotFoundException => (StatusCodes.Status404NotFound, "Subscription not found"),
+            SubscriptionAlreadyExistsException => (StatusCodes.Status409Conflict, "Subscription already exists"),
+            InvalidWebhookSignatureException => (StatusCodes.Status400BadRequest, "Invalid webhook signature"),
+            TwoFactorRequiredException => (StatusCodes.Status401Unauthorized, "Two-factor code required"),
+            InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
+            TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
+            TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
