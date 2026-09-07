@@ -19,7 +19,7 @@ namespace Orbita.Infrastructure.Ai;
 /// in CLAUDE.md that <c>WebApplicationFactory</c>-based tests only finish layering their
 /// overrides once the host is built.
 /// </summary>
-internal sealed class ConfigurationLlmModelSelector(IConfiguration configuration) : ILlmModelSelector
+public sealed class ConfigurationLlmModelSelector(IConfiguration configuration) : ILlmModelSelector
 {
     // Defaults target Ollama, which is what runs with no configuration and no account:
     // llama3.1 supports tool calling, and nomic-embed-text produces 768-dimension

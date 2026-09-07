@@ -20,7 +20,7 @@ namespace Orbita.Infrastructure.Ai;
 /// them: Ollama returns tool arguments as a JSON object rather than a string, and it
 /// does not issue tool-call ids, so this adapter synthesizes them.
 /// </summary>
-internal sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
+public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
 {
     private const string ChatPath = "/api/chat";
     private const string EmbedPath = "/api/embed";

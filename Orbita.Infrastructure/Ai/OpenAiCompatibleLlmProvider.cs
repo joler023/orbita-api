@@ -24,7 +24,7 @@ namespace Orbita.Infrastructure.Ai;
 /// because the default target is a model running on the developer's own machine. Set
 /// them when pointing at a paid endpoint, or <c>ai_runs</c> will under-report spend.
 /// </summary>
-internal sealed class OpenAiCompatibleLlmProvider(
+public sealed class OpenAiCompatibleLlmProvider(
     HttpClient httpClient,
     decimal usdPerMillionInputTokens,
     decimal usdPerMillionOutputTokens) : ILlmProvider
