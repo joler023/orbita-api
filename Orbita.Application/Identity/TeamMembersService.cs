@@ -1,3 +1,4 @@
+using Orbita.Application.Audit;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 
@@ -7,6 +8,7 @@ public sealed class TeamMembersService(
     IMembershipRepository membershipRepository,
     IUserRepository userRepository,
     ITenantAuthorizationService authorizationService,
+    IAuditLogger auditLogger,
     IUnitOfWork unitOfWork) : ITeamMembersService
 {
     public async Task<IReadOnlyList<TeamMemberSummary>> ListAsync(Guid tenantId, Guid callerUserId, CancellationToken cancellationToken)
@@ -40,7 +42,16 @@ public sealed class TeamMembersService(
             await EnsureNotTheLastOwnerAsync(tenantId, cancellationToken);
         }
 
+        var previousRole = membership.Role;
         membership.ChangeRole(newRole);
+        await auditLogger.RecordAsync(
+            tenantId,
+            callerUserId,
+            "membership.role_changed",
+            nameof(Membership),
+            membership.Id,
+            new { from = previousRole.ToString(), to = newRole.ToString() },
+            cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         var user = await RequireUserAsync(membership.UserId, cancellationToken);
@@ -58,6 +69,14 @@ public sealed class TeamMembersService(
         }
 
         membership.Deactivate();
+        await auditLogger.RecordAsync(
+            tenantId,
+            callerUserId,
+            "membership.removed",
+            nameof(Membership),
+            membership.Id,
+            new { role = membership.Role.ToString() },
+            cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 

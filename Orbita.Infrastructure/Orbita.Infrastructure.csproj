@@ -6,9 +6,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Needed for Microsoft.AspNetCore.DataProtection.IDataProtectionProvider (ORB-A11's
-         KMS stand-in) — this is a plain class library, not a Web SDK project, so the
-         ASP.NET Core shared framework isn't referenced implicitly. -->
+    <!-- Needed for Microsoft.AspNetCore.Http.IHttpContextAccessor (ORB-A15's
+         IRequestContext) — this is a plain class library, not a Web SDK project, so
+         the ASP.NET Core shared framework isn't referenced implicitly. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

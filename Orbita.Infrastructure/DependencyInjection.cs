@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Common;
+using Orbita.Domain.Audit;
+using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
@@ -45,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IInvitationTokenRepository, InvitationTokenRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<ITwoFactorBackupCodeRepository, TwoFactorBackupCodeRepository>();
@@ -63,6 +67,9 @@ public static class DependencyInjection
         services.AddScoped<IPaymentProvider, StripePaymentProvider>();
         services.AddHttpClient<WompiPaymentProvider>();
         services.AddScoped<IPaymentProvider>(sp => sp.GetRequiredService<WompiPaymentProvider>());
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<IRequestContext, HttpRequestContext>();
 
         return services;
     }
