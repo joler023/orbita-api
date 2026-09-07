@@ -2,6 +2,7 @@ using Moq;
 using Orbita.Application.Audit;
 using Orbita.Application.Identity;
 using Orbita.Domain.Audit;
+using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 
 namespace Orbita.UnitTests.Application;
@@ -12,6 +13,7 @@ public sealed class AuditLogQueryServiceTests
 
     private readonly Mock<IAuditLogRepository> _repository = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
+    private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly AuditLogQueryService _sut;
 
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -19,7 +21,11 @@ public sealed class AuditLogQueryServiceTests
 
     public AuditLogQueryServiceTests()
     {
-        _sut = new AuditLogQueryService(_repository.Object, _authorization.Object);
+        _unitOfWork
+            .Setup(u => u.QueryInTenantScopeAsync(It.IsAny<Func<CancellationToken, Task<IReadOnlyList<AuditLogEntry>>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<IReadOnlyList<AuditLogEntry>>> query, CancellationToken ct) => query(ct));
+
+        _sut = new AuditLogQueryService(_repository.Object, _authorization.Object, _unitOfWork.Object);
     }
 
     [Fact]
