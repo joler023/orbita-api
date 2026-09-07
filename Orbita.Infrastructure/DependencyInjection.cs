@@ -90,11 +90,15 @@ public static class DependencyInjection
     /// Registering the adapters as <c>ILlmProvider</c> too would make the wrapper
     /// resolve itself.
     ///
-    /// Order is Ollama first, then the OpenAI-compatible endpoint: the local model
-    /// costs nothing and works offline, so it is the sensible primary while no paid
-    /// account exists. Flipping that once a hosted provider is configured is a one-line
-    /// change here — deliberately not a configuration knob, since nothing in the
-    /// backlog asks for one.
+    /// Order is the OpenAI-compatible endpoint first, then Ollama. The hosted gateway is
+    /// the real path: it is what serves the configured models and the only one that can
+    /// produce the 1536-dimension embeddings <c>knowledge_chunks</c> stores. Ollama stays
+    /// registered as ORB-C01's required second implementation and as chat failover, but
+    /// it cannot serve embeddings at this dimension — see
+    /// <c>KnowledgeChunk.EmbeddingDimensions</c>.
+    ///
+    /// An unconfigured provider is skipped rather than tried and failed, so with no API
+    /// key the chain simply has one link.
     ///
     /// Both read their configuration inside the client-configuration delegate rather
     /// than at registration time, for the same reason the connection string does.
@@ -107,9 +111,10 @@ public static class DependencyInjection
         services.AddHttpClient<OllamaLlmProvider>((serviceProvider, client) =>
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-            // Defaulting to Ollama's standard local port means a developer who has it
-            // installed gets a working provider with no configuration at all.
-            var baseUrl = configuration["Ai:Providers:ollama:BaseUrl"] ?? "http://localhost:11434";
+            // No default: Ollama is opt-in now that the hosted gateway is the real path.
+            // Left unset it reports IsConfigured = false and the chain skips it, instead
+            // of every call paying a connection timeout to a port nobody is listening on.
+            var baseUrl = configuration["Ai:Providers:ollama:BaseUrl"];
 
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
@@ -142,8 +147,8 @@ public static class DependencyInjection
 
         services.AddScoped<ILlmProvider>(serviceProvider => new ResilientLlmProvider(
         [
-            serviceProvider.GetRequiredService<OllamaLlmProvider>(),
             serviceProvider.GetRequiredService<OpenAiCompatibleLlmProvider>(),
+            serviceProvider.GetRequiredService<OllamaLlmProvider>(),
         ]));
     }
 
@@ -161,6 +166,7 @@ public static class DependencyInjection
         services.AddScoped<IKnowledgeDocumentRepository, KnowledgeDocumentRepository>();
         services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
+        services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
 
         services.AddSingleton<ITextExtractor, PlainTextExtractor>();
         services.AddSingleton<ITextExtractor, PdfTextExtractor>();

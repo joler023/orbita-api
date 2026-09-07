@@ -44,23 +44,25 @@ public sealed class ConfigurationLlmModelSelectorTests
     }
 
     [Fact]
-    public void Unconfigured_tasks_fall_back_to_models_that_run_locally()
+    public void An_unconfigured_task_falls_back_to_the_models_this_project_actually_runs_on()
     {
-        // A developer with Ollama installed and no configuration at all still gets a
-        // working setup.
+        // A missing config line degrades to "the normal model" rather than to something
+        // that does not exist.
         var selector = Build();
 
-        Assert.Equal("llama3.1", selector.SelectModel(Guid.NewGuid(), LlmTask.Draft, "ollama"));
-        Assert.Equal("nomic-embed-text", selector.SelectModel(Guid.NewGuid(), LlmTask.Embed, "ollama"));
+        Assert.Equal("openai/gpt-5.6-luna", selector.SelectModel(Guid.NewGuid(), LlmTask.Draft, "openai-compatible"));
+        Assert.Equal("openai/text-embedding-3-small", selector.SelectModel(Guid.NewGuid(), LlmTask.Embed, "openai-compatible"));
     }
 
     [Fact]
     public void A_blank_configuration_value_is_treated_as_unset()
     {
         // appsettings.json ships these keys empty, the same way the Billing ones are.
-        var selector = Build(("Ai:Providers:ollama:Models:Embed", ""));
+        var selector = Build(("Ai:Providers:openai-compatible:Models:Embed", ""));
 
-        Assert.Equal("nomic-embed-text", selector.SelectModel(Guid.NewGuid(), LlmTask.Embed, "ollama"));
+        Assert.Equal(
+            "openai/text-embedding-3-small",
+            selector.SelectModel(Guid.NewGuid(), LlmTask.Embed, "openai-compatible"));
     }
 
     [Fact]

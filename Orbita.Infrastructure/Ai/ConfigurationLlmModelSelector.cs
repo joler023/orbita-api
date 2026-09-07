@@ -24,11 +24,12 @@ namespace Orbita.Infrastructure.Ai;
 /// </summary>
 public sealed class ConfigurationLlmModelSelector(IConfiguration configuration) : ILlmModelSelector
 {
-    // Fallbacks target Ollama, which is what runs with no configuration and no account:
-    // llama3.1 supports tool calling, and nomic-embed-text produces 768-dimension
-    // vectors — the dimension knowledge_chunks.embedding is created with (ORB-C02).
-    private const string DefaultChatModel = "llama3.1";
-    private const string DefaultEmbeddingModel = "nomic-embed-text";
+    // Last-resort fallbacks, used only when a provider has no Models section configured
+    // at all. They name the hosted models this project actually runs on, so a missing
+    // config line degrades to "the normal model" rather than to something that does not
+    // exist.
+    private const string DefaultChatModel = "openai/gpt-5.6-luna";
+    private const string DefaultEmbeddingModel = "openai/text-embedding-3-small";
 
     public string SelectModel(Guid tenantId, LlmTask task, string providerName)
     {
