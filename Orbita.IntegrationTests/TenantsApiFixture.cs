@@ -5,11 +5,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
+using Orbita.Infrastructure.Ai;
 using Orbita.Infrastructure.Persistence;
+using Orbita.IntegrationTests.Ai;
 using Orbita.IntegrationTests.TestSupport;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -76,6 +80,25 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.RemoveAll<IPaymentProvider>();
             services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Stripe));
             services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Wompi));
+
+            // Same reasoning for the model provider: a real one would need Ollama running
+            // or an OpenRouter balance, and would make every assertion flaky.
+            services.RemoveAll<ILlmProvider>();
+            services.AddSingleton<ILlmProvider>(Llm);
+
+            // The background indexer is removed so tests decide when indexing happens.
+            // Left running, it would race every assertion about a document's status.
+            services.RemoveAll<IHostedService>();
+
+            // Uploaded files go to a directory this fixture owns and deletes.
+            services.RemoveAll<IKnowledgeDocumentStorage>();
+            services.AddSingleton<IKnowledgeDocumentStorage>(
+                new LocalDiskKnowledgeDocumentStorage(new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Ai:KnowledgeStorage:RootPath"] = KnowledgeStorageRoot,
+                    })
+                    .Build()));
         });
     }
 
@@ -86,6 +109,13 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
     /// TenantIsolationTests.QueryFilter_OnlyReturnsMembershipsForTheAmbientTenant).
     /// </summary>
     public string GetAdminConnectionString() => _postgres.GetConnectionString();
+
+    /// <summary>The stand-in model provider; tests can script a failure on it.</summary>
+    public FakeLlmProvider Llm { get; } = new();
+
+    /// <summary>Where ORB-C02 uploads land during tests. Removed on teardown.</summary>
+    public string KnowledgeStorageRoot { get; } =
+        Path.Combine(Path.GetTempPath(), "orbita-tests", Guid.NewGuid().ToString("N"));
 
     private string BuildAppConnectionString()
     {

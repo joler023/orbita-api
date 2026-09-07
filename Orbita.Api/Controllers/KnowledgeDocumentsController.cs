@@ -121,5 +121,5 @@ public sealed class KnowledgeDocumentsController(IKnowledgeDocumentService knowl
 /// <param name="Title">Shown as the document's name in the list.</param>
 /// <param name="Text">Pasted content, indexed exactly like an uploaded file.</param>
 public sealed record AddKnowledgeTextRequest(
-    [property: Required, MaxLength(300)] string Title,
-    [property: Required, MaxLength(500_000)] string Text);
+    [Required, MaxLength(300)] string Title,
+    [Required, MaxLength(500_000)] string Text);
