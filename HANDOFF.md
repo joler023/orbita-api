@@ -6,7 +6,7 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — tras terminar `ORB-A15` (bitácora de auditoría), en la rama `feature/audit-log` (sin mergear a `develop` todavía). `ORB-A08` y `ORB-A10` ya están en `develop`; `ORB-A11` (verificación en dos pasos) y `ORB-A12` (planes y suscripción) están listas cada una en su propia rama, también sin mergear.
+**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
 
 ## Qué está implementado
 
@@ -20,9 +20,9 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 - [x] `ORB-A07` Invitar miembros al equipo
 - [x] `ORB-A08` Roles y permisos
 - [x] `ORB-A10` Recuperación de contraseña
-- [x] `ORB-A11` Verificación en dos pasos — en `feature/two-factor-auth`, sin mergear
-- [x] `ORB-A12` Planes y suscripción — en `feature/subscription-billing`, sin mergear; **código completo, sin credenciales reales conectadas**
-- [x] `ORB-A15` Bitácora de auditoría — en `feature/audit-log`, sin mergear; solo cambios de rol/remoción de miembros auditados por ahora
+- [x] `ORB-A11` Verificación en dos pasos — política de MFA de tenant guardada, **no aplicada en runtime** (ver abajo)
+- [x] `ORB-A12` Planes y suscripción — **código completo, sin credenciales reales conectadas** (ver abajo)
+- [x] `ORB-A15` Bitácora de auditoría — solo cambios de rol/remoción de miembros auditados por ahora
 - [ ] `ORB-A13` Medición de consumo — necesita que exista Track C (agentes de IA) primero
 - [ ] `ORB-A14` Límites del plan — depende de A12 (listo) y A13 (no)
 
