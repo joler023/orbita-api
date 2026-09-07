@@ -12,4 +12,7 @@ public enum Permission
 
     /// <summary>Invite, resend, revoke, change the role of, or remove team members.</summary>
     ManageTeam,
+
+    /// <summary>Query the tenant's audit log (ORB-A15).</summary>
+    ViewAuditLog,
 }
