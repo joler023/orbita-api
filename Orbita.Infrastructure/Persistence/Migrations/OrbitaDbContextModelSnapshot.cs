@@ -158,7 +158,7 @@ namespace Orbita.Infrastructure.Persistence.Migrations
 
                     b.Property<Vector>("Embedding")
                         .IsRequired()
-                        .HasColumnType("vector(768)")
+                        .HasColumnType("vector(1536)")
                         .HasColumnName("embedding");
 
                     b.Property<Guid>("TenantId")
@@ -243,6 +243,30 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_knowledge_docs_tenant_agent_created");
 
                     b.ToTable("knowledge_docs", (string)null);
+                });
+
+            modelBuilder.Entity("Orbita.Domain.Ai.KnowledgeIndexingQueueEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("doc_id");
+
+                    b.Property<DateTimeOffset>("EnqueuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("enqueued_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnqueuedAt")
+                        .HasDatabaseName("ix_knowledge_indexing_queue_enqueued");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("knowledge_indexing_queue", (string)null);
                 });
 
             modelBuilder.Entity("Orbita.Domain.Audit.AuditLogEntry", b =>
@@ -801,6 +825,21 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.HasOne("Orbita.Domain.Ai.AiAgent", null)
                         .WithMany()
                         .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Orbita.Domain.Ai.KnowledgeIndexingQueueEntry", b =>
+                {
+                    b.HasOne("Orbita.Domain.Ai.KnowledgeDocument", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

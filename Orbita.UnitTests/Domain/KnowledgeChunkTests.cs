@@ -21,13 +21,14 @@ public sealed class KnowledgeChunkTests
     public void An_embedding_of_the_wrong_size_is_rejected_with_an_explanation()
     {
         // This is the guard that catches "somebody changed the embedding model" before it
-        // becomes a Postgres type error nobody can read.
-        var wrongSize = new float[1536];
+        // becomes a Postgres type error nobody can read. 768 is what a local
+        // nomic-embed-text would produce — the exact mistake most likely to happen.
+        var wrongSize = new float[768];
 
         var failure = Assert.Throws<ArgumentException>(
             () => KnowledgeChunk.Create(Guid.NewGuid(), Guid.NewGuid(), 0, "hola", 1, wrongSize));
 
-        Assert.Contains("1536", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("768", failure.Message, StringComparison.Ordinal);
         Assert.Contains(KnowledgeChunk.EmbeddingDimensions.ToString(), failure.Message, StringComparison.Ordinal);
         Assert.Contains("reindex", failure.Message, StringComparison.OrdinalIgnoreCase);
     }

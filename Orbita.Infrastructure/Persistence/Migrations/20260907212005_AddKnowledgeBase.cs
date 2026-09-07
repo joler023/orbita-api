@@ -120,7 +120,7 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     chunk_index = table.Column<int>(type: "integer", nullable: false),
                     content = table.Column<string>(type: "text", nullable: false),
                     token_count = table.Column<int>(type: "integer", nullable: true),
-                    embedding = table.Column<Vector>(type: "vector(768)", nullable: false)
+                    embedding = table.Column<Vector>(type: "vector(1536)", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -184,6 +184,40 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                 table: "knowledge_docs",
                 columns: new[] { "tenant_id", "status" });
 
+            // The background indexer's work list. Keyed by doc_id so enqueueing twice is
+            // idempotent. Deliberately NOT row-level-secured — see
+            // KnowledgeIndexingQueueEntry: it is read before the tenant is known, because
+            // learning the tenant is the point of reading it. It holds no content.
+            migrationBuilder.CreateTable(
+                name: "knowledge_indexing_queue",
+                columns: table => new
+                {
+                    doc_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    enqueued_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_knowledge_indexing_queue", x => x.doc_id);
+                    table.ForeignKey(
+                        name: "FK_knowledge_indexing_queue_knowledge_docs_doc_id",
+                        column: x => x.doc_id,
+                        principalTable: "knowledge_docs",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_knowledge_indexing_queue_tenants_tenant_id",
+                        column: x => x.tenant_id,
+                        principalTable: "tenants",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_knowledge_indexing_queue_enqueued",
+                table: "knowledge_indexing_queue",
+                column: "enqueued_at");
+
             // Layer 2 of the isolation rule in orbita-schema.dbml (layer 1 is the EF query
             // filter in OrbitaDbContext, layer 3 the tenant_id-first indexes above). Same
             // policy shape as memberships: NULLIF guards the empty string, so a session
@@ -223,6 +257,9 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     ALTER TABLE {table} DISABLE ROW LEVEL SECURITY;
                     """);
             }
+
+            migrationBuilder.DropTable(
+                name: "knowledge_indexing_queue");
 
             migrationBuilder.DropTable(
                 name: "ai_runs");

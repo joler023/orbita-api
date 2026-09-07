@@ -55,18 +55,20 @@ public sealed class KnowledgeChunk : Entity
     public float[] Embedding { get; }
 
     /// <summary>
-    /// The one dimension this deployment indexes at.
+    /// The one dimension this deployment indexes at — 1536, exactly as
+    /// orbita-schema.dbml specifies.
     ///
-    /// 768 rather than orbita-schema.dbml's 1536 because it is the common denominator
-    /// across the models actually available: <c>nomic-embed-text</c> on a local Ollama is
-    /// 768, and OpenAI's <c>text-embedding-3-small</c> can be asked for 768 explicitly.
-    /// Picking the value only OpenAI produces would make the local, free path
-    /// impossible.
+    /// It is the native output of <c>text-embedding-3-small</c>, the hosted model this
+    /// project embeds with. An earlier draft used 768 to keep a locally hosted Ollama
+    /// viable as well; that path was dropped, and with it the reason to store anything
+    /// other than what the real model produces. The consequence to remember: a local
+    /// Ollama can no longer serve embeddings here, because <c>nomic-embed-text</c> emits
+    /// 768 and vectors of different lengths are not comparable at all.
     ///
     /// Changing this is a migration, not a setting: every existing chunk has to be
-    /// re-embedded, because vectors from different models are not comparable.
+    /// re-embedded.
     /// </summary>
-    public const int EmbeddingDimensions = 768;
+    public const int EmbeddingDimensions = 1536;
 
     public static KnowledgeChunk Create(
         Guid tenantId,
