@@ -42,6 +42,8 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             StageHasOpportunitiesException => (StatusCodes.Status409Conflict, "Stage has opportunities"),
             PipelineHasOpportunitiesException => (StatusCodes.Status409Conflict, "Pipeline has opportunities"),
             InvalidStageRelocateException => (StatusCodes.Status400BadRequest, "Invalid stage relocate"),
+            OpportunityNotFoundException => (StatusCodes.Status404NotFound, "Opportunity not found"),
+            AssigneeNotInTenantException => (StatusCodes.Status400BadRequest, "Assignee not in tenant"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
