@@ -74,6 +74,13 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 - **A tenant always keeps at least one Owner.** `TeamMembersService` counts active Owners (`IMembershipRepository.CountActiveByTenantAndRoleAsync`) before demoting or removing one, and throws `CannotRemoveLastOwnerException` (409) if that would leave zero — checked only when the *target* of the change is currently an Owner, not on every call.
 - Enforcement is entirely backend-side, per the historia's explicit acceptance criterion ("ocultar un botón no es control de acceso") — hiding actions a role can't use in the dashboard is `orbita-front`'s job once it exists, not a substitute for the 403s here.
 
+### Password reset (ORB-A10)
+
+- `POST /api/auth/forgot-password` always responds `202 Accepted`, whether or not the email belongs to an account — `PasswordResetService.RequestAsync` is a silent no-op for an unknown email instead of throwing, so the endpoint can never be used to enumerate registered accounts. Don't add a different status code or error body for the "email not found" case.
+- `PasswordResetToken` mirrors `InvitationToken`'s shape (global, not tenant-scoped, only a SHA-256 hash persisted) but with a much shorter lifetime (`PasswordResetService.ResetLifetime`, one hour vs. seven days) — it is a "prove you control this inbox right now" credential, not an onboarding link.
+- Requesting a new reset link invalidates any previous one for that user (`IPasswordResetTokenRepository.InvalidateForUserAsync`), same pattern as `TeamInvitationService`'s resend.
+- `POST /api/auth/reset-password` revokes every active refresh token for the user across every family (`IRefreshTokenRepository.RevokeAllForUserAsync`), not just the family behind the session that requested the reset — "se invalidan todas las sesiones activas" means all of them. This is a separate bulk update from `RevokeFamilyAsync` (ORB-A06's reuse-detection response), which only revokes one family.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.

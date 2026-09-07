@@ -38,6 +38,9 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
     /// </summary>
     public CapturingInvitationEmailSender InvitationEmails { get; } = new();
 
+    /// <summary>Same idea as <see cref="InvitationEmails"/>, for password reset links (ORB-A10).</summary>
+    public CapturingPasswordResetEmailSender PasswordResetEmails { get; } = new();
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
@@ -63,6 +66,8 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
         {
             services.RemoveAll<IInvitationEmailSender>();
             services.AddSingleton<IInvitationEmailSender>(InvitationEmails);
+            services.RemoveAll<IPasswordResetEmailSender>();
+            services.AddSingleton<IPasswordResetEmailSender>(PasswordResetEmails);
         });
     }
 
