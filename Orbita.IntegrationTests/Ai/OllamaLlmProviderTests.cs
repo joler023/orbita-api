@@ -1,5 +1,6 @@
 using System.Net;
 using Orbita.Application.Ai;
+using Orbita.Domain.Ai;
 using Orbita.Infrastructure.Ai;
 
 namespace Orbita.IntegrationTests.Ai;
@@ -13,13 +14,16 @@ namespace Orbita.IntegrationTests.Ai;
 public sealed class OllamaLlmProviderTests
 {
     private static readonly LlmCompletionRequest Request = new(
-        "llama3.1",
+        Guid.NewGuid(),
+        LlmTask.Draft,
         [LlmMessage.System("eres un asistente"), LlmMessage.User("hola")],
         Temperature: 0.3m,
         MaxTokens: 800);
 
     private static OllamaLlmProvider Build(StubHttpMessageHandler handler)
-        => new(new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") });
+        => new(
+            new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") },
+            new StubModelSelector("llama3.1", "nomic-embed-text"));
 
     [Fact]
     public async Task CompleteAsync_reads_content_and_token_counts()
@@ -154,10 +158,9 @@ public sealed class OllamaLlmProviderTests
     {
         // Nothing listening on the port: the "un proveedor se cae" case ORB-C01 wants
         // failover to cover.
-        var provider = new OllamaLlmProvider(new HttpClient(new UnreachableHttpMessageHandler())
-        {
-            BaseAddress = new Uri("http://localhost:11434/"),
-        });
+        var provider = new OllamaLlmProvider(
+            new HttpClient(new UnreachableHttpMessageHandler()) { BaseAddress = new Uri("http://localhost:11434/") },
+            new StubModelSelector("llama3.1", "nomic-embed-text"));
 
         var failure = await Assert.ThrowsAsync<LlmProviderException>(
             () => provider.CompleteAsync(Request, CancellationToken.None));
@@ -172,7 +175,7 @@ public sealed class OllamaLlmProviderTests
             { "model": "nomic-embed-text", "embeddings": [[0.1, 0.2, 0.3]], "prompt_eval_count": 4 }
             """);
 
-        var result = await Build(handler).EmbedAsync("catálogo de panadería", "nomic-embed-text", CancellationToken.None);
+        var result = await Build(handler).EmbedAsync("catálogo de panadería", Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal([0.1f, 0.2f, 0.3f], result.Vector);
         Assert.Equal(4, result.Usage.TokensIn);
@@ -181,7 +184,7 @@ public sealed class OllamaLlmProviderTests
 
     [Fact]
     public void IsConfigured_is_false_without_a_base_address()
-        => Assert.False(new OllamaLlmProvider(new HttpClient()).IsConfigured);
+        => Assert.False(new OllamaLlmProvider(new HttpClient(), new StubModelSelector("llama3.1", "nomic-embed-text")).IsConfigured);
 
     private sealed class UnreachableHttpMessageHandler : HttpMessageHandler
     {

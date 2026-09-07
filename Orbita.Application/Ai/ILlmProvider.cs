@@ -41,6 +41,14 @@ public interface ILlmProvider
     /// <exception cref="LlmProviderException">The call failed; see <c>IsTransient</c>.</exception>
     IAsyncEnumerable<LlmChunk> StreamAsync(LlmCompletionRequest request, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Turns text into a vector for the knowledge base. Like completion, the model is
+    /// resolved per provider from <see cref="LlmTask.Embed"/> rather than passed in —
+    /// but note that embedding models are <em>not</em> interchangeable the way chat
+    /// models are: two providers' embedding models produce different dimensions and
+    /// incompatible vector spaces, so failing over mid-corpus would poison the index.
+    /// ORB-C02 pins one embedding model per deployment for that reason.
+    /// </summary>
     /// <exception cref="LlmProviderException">The call failed; see <c>IsTransient</c>.</exception>
-    Task<LlmEmbeddingResult> EmbedAsync(string text, string model, CancellationToken cancellationToken);
+    Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken);
 }

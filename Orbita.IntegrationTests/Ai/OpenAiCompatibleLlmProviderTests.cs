@@ -1,5 +1,6 @@
 using System.Net;
 using Orbita.Application.Ai;
+using Orbita.Domain.Ai;
 using Orbita.Infrastructure.Ai;
 
 namespace Orbita.IntegrationTests.Ai;
@@ -12,7 +13,8 @@ namespace Orbita.IntegrationTests.Ai;
 public sealed class OpenAiCompatibleLlmProviderTests
 {
     private static readonly LlmCompletionRequest Request = new(
-        "local-model",
+        Guid.NewGuid(),
+        LlmTask.Draft,
         [LlmMessage.User("hola")],
         Temperature: 0.3m,
         MaxTokens: 800);
@@ -20,11 +22,12 @@ public sealed class OpenAiCompatibleLlmProviderTests
     private static OpenAiCompatibleLlmProvider Build(
         StubHttpMessageHandler handler,
         decimal inputPrice = 0m,
-        decimal outputPrice = 0m)
+        decimal outputPrice = 0m,
+        string chatModel = "local-model")
         => new(
             new HttpClient(handler) { BaseAddress = new Uri("http://localhost:1234/") },
-            inputPrice,
-            outputPrice);
+            new StubModelSelector(chatModel, "text-embedding-3-small"),
+            new StubLlmPricing(inputPrice, outputPrice));
 
     [Fact]
     public async Task CompleteAsync_reads_content_and_token_counts()
@@ -206,7 +209,7 @@ public sealed class OpenAiCompatibleLlmProviderTests
             }
             """);
 
-        var result = await Build(handler).EmbedAsync("hola", "text-embedding-3-small", CancellationToken.None);
+        var result = await Build(handler).EmbedAsync("hola", Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal([0.4f, 0.5f], result.Vector);
         Assert.Equal(7, result.Usage.TokensIn);
@@ -215,5 +218,9 @@ public sealed class OpenAiCompatibleLlmProviderTests
 
     [Fact]
     public void IsConfigured_is_false_without_a_base_address()
-        => Assert.False(new OpenAiCompatibleLlmProvider(new HttpClient(), 0m, 0m).IsConfigured);
+        => Assert.False(
+            new OpenAiCompatibleLlmProvider(
+                new HttpClient(),
+                new StubModelSelector("local-model", "text-embedding-3-small"),
+                new StubLlmPricing(0m, 0m)).IsConfigured);
 }

@@ -20,7 +20,7 @@ namespace Orbita.Infrastructure.Ai;
 /// them: Ollama returns tool arguments as a JSON object rather than a string, and it
 /// does not issue tool-call ids, so this adapter synthesizes them.
 /// </summary>
-public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
+public sealed class OllamaLlmProvider(HttpClient httpClient, ILlmModelSelector modelSelector) : ILlmProvider
 {
     private const string ChatPath = "/api/chat";
     private const string EmbedPath = "/api/embed";
@@ -31,8 +31,9 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
 
     public async Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
+        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
         var stopwatch = Stopwatch.StartNew();
-        using var response = await SendAsync(ChatPath, BuildChatRequest(request, stream: false), cancellationToken);
+        using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: false), cancellationToken);
         var payload = await ReadAsync<OllamaChatResponse>(response, cancellationToken);
         stopwatch.Stop();
 
@@ -42,7 +43,7 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
             payload.Message?.Content,
             toolCalls,
             new LlmUsage(
-                payload.Model ?? request.Model,
+                payload.Model ?? model,
                 payload.PromptEvalCount ?? 0,
                 payload.EvalCount ?? 0,
                 CostUsd: 0m,
@@ -54,8 +55,9 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
         LlmCompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
         var stopwatch = Stopwatch.StartNew();
-        using var response = await SendAsync(ChatPath, BuildChatRequest(request, stream: true), cancellationToken);
+        using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: true), cancellationToken);
 
         // Ollama streams newline-delimited JSON: one complete object per line, the last
         // one carrying done=true plus the token counts.
@@ -101,7 +103,7 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
                     null,
                     IsFinal: true,
                     new LlmUsage(
-                        payload.Model ?? request.Model,
+                        payload.Model ?? model,
                         payload.PromptEvalCount ?? 0,
                         payload.EvalCount ?? 0,
                         CostUsd: 0m,
@@ -117,8 +119,9 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
         }
     }
 
-    public async Task<LlmEmbeddingResult> EmbedAsync(string text, string model, CancellationToken cancellationToken)
+    public async Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
+        var model = modelSelector.SelectModel(tenantId, LlmTask.Embed, Name);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(EmbedPath, new OllamaEmbedRequest { Model = model, Input = text }, cancellationToken);
         var payload = await ReadAsync<OllamaEmbedResponse>(response, cancellationToken);
@@ -140,10 +143,10 @@ public sealed class OllamaLlmProvider(HttpClient httpClient) : ILlmProvider
                 FinishReason: null));
     }
 
-    private static OllamaChatRequest BuildChatRequest(LlmCompletionRequest request, bool stream)
+    private static OllamaChatRequest BuildChatRequest(LlmCompletionRequest request, string model, bool stream)
         => new()
         {
-            Model = request.Model,
+            Model = model,
             Stream = stream,
             Options = new OllamaOptions { Temperature = request.Temperature, NumPredict = request.MaxTokens },
             Messages = request.Messages

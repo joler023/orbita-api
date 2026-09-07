@@ -20,14 +20,16 @@ namespace Orbita.Infrastructure.Ai;
 /// code. It follows the posture ORB-A12 already established for Stripe and Wompi: fully
 /// implemented, credentials empty by default, inert until someone fills them in.
 ///
-/// Cost is computed from configured per-million-token prices, which default to 0
-/// because the default target is a model running on the developer's own machine. Set
-/// them when pointing at a paid endpoint, or <c>ai_runs</c> will under-report spend.
+/// One gateway commonly serves many models at different rates (OpenRouter fronts
+/// <c>openai/gpt-5.6-luna</c>, <c>deepseek/deepseek-v4-flash</c> and
+/// <c>google/gemini-3.5-flash-lite</c> at three different prices), so cost comes from
+/// <see cref="ILlmPricing"/> keyed by the resolved model — not from a single rate
+/// attached to the provider.
 /// </summary>
 public sealed class OpenAiCompatibleLlmProvider(
     HttpClient httpClient,
-    decimal usdPerMillionInputTokens,
-    decimal usdPerMillionOutputTokens) : ILlmProvider
+    ILlmModelSelector modelSelector,
+    ILlmPricing pricing) : ILlmProvider
 {
     private const string ChatPath = "v1/chat/completions";
     private const string EmbeddingsPath = "v1/embeddings";
@@ -40,8 +42,9 @@ public sealed class OpenAiCompatibleLlmProvider(
 
     public async Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
+        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
         var stopwatch = Stopwatch.StartNew();
-        using var response = await SendAsync(ChatPath, BuildChatRequest(request, stream: false), cancellationToken);
+        using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: false), cancellationToken);
         var payload = await ReadAsync<OpenAiChatResponse>(response, cancellationToken);
         stopwatch.Stop();
 
@@ -59,15 +62,16 @@ public sealed class OpenAiCompatibleLlmProvider(
         return new LlmCompletionResult(
             choice.Message?.Content,
             toolCalls,
-            BuildUsage(payload.Model ?? request.Model, payload.Usage, stopwatch, choice.FinishReason));
+            BuildUsage(payload.Model ?? model, payload.Usage, stopwatch, choice.FinishReason));
     }
 
     public async IAsyncEnumerable<LlmChunk> StreamAsync(
         LlmCompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        var resolvedModel = modelSelector.SelectModel(request.TenantId, request.Task, Name);
         var stopwatch = Stopwatch.StartNew();
-        using var response = await SendAsync(ChatPath, BuildChatRequest(request, stream: true), cancellationToken);
+        using var response = await SendAsync(ChatPath, BuildChatRequest(request, resolvedModel, stream: true), cancellationToken);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
@@ -76,7 +80,7 @@ public sealed class OpenAiCompatibleLlmProvider(
         // they are accumulated here and only surfaced once the stream says generation
         // finished, so a consumer never sees half-written arguments.
         var pendingToolCalls = new SortedDictionary<int, PendingToolCall>();
-        var model = request.Model;
+        var model = resolvedModel;
         OpenAiUsage? usage = null;
         string? finishReason = null;
 
@@ -152,8 +156,9 @@ public sealed class OpenAiCompatibleLlmProvider(
             BuildUsage(model, usage, stopwatch, finishReason));
     }
 
-    public async Task<LlmEmbeddingResult> EmbedAsync(string text, string model, CancellationToken cancellationToken)
+    public async Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
+        var model = modelSelector.SelectModel(tenantId, LlmTask.Embed, Name);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(
             EmbeddingsPath,
@@ -191,10 +196,10 @@ public sealed class OpenAiCompatibleLlmProvider(
         }
     }
 
-    private static OpenAiChatRequest BuildChatRequest(LlmCompletionRequest request, bool stream)
+    private static OpenAiChatRequest BuildChatRequest(LlmCompletionRequest request, string model, bool stream)
         => new()
         {
-            Model = request.Model,
+            Model = model,
             Temperature = request.Temperature,
             MaxTokens = request.MaxTokens,
             Stream = stream,
@@ -247,9 +252,13 @@ public sealed class OpenAiCompatibleLlmProvider(
         var tokensIn = usage?.PromptTokens ?? 0;
         var tokensOut = usage?.CompletionTokens ?? 0;
 
-        var cost = ((tokensIn * usdPerMillionInputTokens) + (tokensOut * usdPerMillionOutputTokens)) / 1_000_000m;
-
-        return new LlmUsage(model, tokensIn, tokensOut, cost, (int)stopwatch.ElapsedMilliseconds, finishReason);
+        return new LlmUsage(
+            model,
+            tokensIn,
+            tokensOut,
+            pricing.CostFor(model, tokensIn, tokensOut),
+            (int)stopwatch.ElapsedMilliseconds,
+            finishReason);
     }
 
     private async Task<HttpResponseMessage> SendAsync<TRequest>(string path, TRequest body, CancellationToken cancellationToken)

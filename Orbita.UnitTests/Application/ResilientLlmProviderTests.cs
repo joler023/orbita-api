@@ -1,4 +1,5 @@
 using Orbita.Application.Ai;
+using Orbita.Domain.Ai;
 using Orbita.UnitTests.TestSupport;
 
 namespace Orbita.UnitTests.Application;
@@ -6,7 +7,8 @@ namespace Orbita.UnitTests.Application;
 public sealed class ResilientLlmProviderTests
 {
     private static readonly LlmCompletionRequest Request = new(
-        "llama3.1",
+        Guid.NewGuid(),
+        LlmTask.Draft,
         [LlmMessage.User("hola")],
         Temperature: 0.3m,
         MaxTokens: 800);
@@ -109,10 +111,10 @@ public sealed class ResilientLlmProviderTests
         var primary = new StubLlmProvider("primary", () => StubLlmProvider.Transient("primary"));
         var fallback = StubLlmProvider.AlwaysSucceeds("fallback");
 
-        var result = await Build(primary, fallback).EmbedAsync("hola", "nomic-embed-text", CancellationToken.None);
+        var result = await Build(primary, fallback).EmbedAsync("hola", Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(2, result.Vector.Count);
-        Assert.Equal("nomic-embed-text", result.Usage.Model);
+        Assert.Equal("stub-embed", result.Usage.Model);
     }
 
     [Fact]

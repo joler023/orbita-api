@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -99,13 +98,14 @@ public static class DependencyInjection
     private static void AddLlmProviders(IServiceCollection services)
     {
         services.AddSingleton<ILlmModelSelector, ConfigurationLlmModelSelector>();
+        services.AddSingleton<ILlmPricing, ConfigurationLlmPricing>();
 
         services.AddHttpClient<OllamaLlmProvider>((serviceProvider, client) =>
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
             // Defaulting to Ollama's standard local port means a developer who has it
             // installed gets a working provider with no configuration at all.
-            var baseUrl = configuration["Ai:Providers:Ollama:BaseUrl"] ?? "http://localhost:11434";
+            var baseUrl = configuration["Ai:Providers:ollama:BaseUrl"] ?? "http://localhost:11434";
 
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
@@ -115,13 +115,10 @@ public static class DependencyInjection
             client.Timeout = LlmRequestTimeout;
         });
 
-        // A *named* client rather than a typed one: this provider's constructor also
-        // takes its pricing, which the container has no way to supply, so the instance
-        // is built by the factory below.
-        services.AddHttpClient(OpenAiCompatibleClientName, (serviceProvider, client) =>
+        services.AddHttpClient<OpenAiCompatibleLlmProvider>((serviceProvider, client) =>
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-            var baseUrl = configuration["Ai:Providers:OpenAiCompatible:BaseUrl"];
+            var baseUrl = configuration["Ai:Providers:openai-compatible:BaseUrl"];
 
             // Empty by default: the provider reports IsConfigured = false and the
             // resilience layer skips it, exactly like Stripe/Wompi without credentials.
@@ -130,25 +127,13 @@ public static class DependencyInjection
                 client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
             }
 
-            var apiKey = configuration["Ai:Providers:OpenAiCompatible:ApiKey"];
+            var apiKey = configuration["Ai:Providers:openai-compatible:ApiKey"];
             if (!string.IsNullOrWhiteSpace(apiKey))
             {
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             }
 
             client.Timeout = LlmRequestTimeout;
-        });
-
-        services.AddScoped<OpenAiCompatibleLlmProvider>(serviceProvider =>
-        {
-            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-            var httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
-                .CreateClient(OpenAiCompatibleClientName);
-
-            return new OpenAiCompatibleLlmProvider(
-                httpClient,
-                ReadPrice(configuration, "Ai:Providers:OpenAiCompatible:UsdPerMillionInputTokens"),
-                ReadPrice(configuration, "Ai:Providers:OpenAiCompatible:UsdPerMillionOutputTokens"));
         });
 
         services.AddScoped<ILlmProvider>(serviceProvider => new ResilientLlmProvider(
@@ -158,16 +143,6 @@ public static class DependencyInjection
         ]));
     }
 
-    private const string OpenAiCompatibleClientName = "openai-compatible";
-
     /// <summary>Generation is slow; the default 100-second HttpClient timeout cuts long replies off.</summary>
     private static readonly TimeSpan LlmRequestTimeout = TimeSpan.FromMinutes(5);
-
-    /// <summary>
-    /// Zero when unset, which is correct for a locally hosted model — see
-    /// <see cref="OpenAiCompatibleLlmProvider"/> on why this must be filled in before
-    /// pointing at a paid endpoint.
-    /// </summary>
-    private static decimal ReadPrice(IConfiguration configuration, string key)
-        => decimal.TryParse(configuration[key], CultureInfo.InvariantCulture, out var price) ? price : 0m;
 }

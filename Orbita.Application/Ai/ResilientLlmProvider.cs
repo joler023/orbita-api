@@ -67,8 +67,8 @@ public sealed class ResilientLlmProvider : ILlmProvider
     public Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
         => ExecuteAsync(provider => provider.CompleteAsync(request, cancellationToken), cancellationToken);
 
-    public Task<LlmEmbeddingResult> EmbedAsync(string text, string model, CancellationToken cancellationToken)
-        => ExecuteAsync(provider => provider.EmbedAsync(text, model, cancellationToken), cancellationToken);
+    public Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
+        => ExecuteAsync(provider => provider.EmbedAsync(text, tenantId, cancellationToken), cancellationToken);
 
     /// <summary>
     /// Failover applies only up to the first chunk handed to the caller. Once any text

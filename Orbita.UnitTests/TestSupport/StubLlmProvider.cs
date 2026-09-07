@@ -45,10 +45,10 @@ internal sealed class StubLlmProvider(string name, params Func<LlmProviderExcept
             throw failure;
         }
 
-        return Task.FromResult(new LlmCompletionResult("ok", [], UsageFor(request.Model)));
+        return Task.FromResult(new LlmCompletionResult("ok", [], UsageFor("stub-model")));
     }
 
-    public Task<LlmEmbeddingResult> EmbedAsync(string text, string model, CancellationToken cancellationToken)
+    public Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
         CallCount++;
 
@@ -57,7 +57,7 @@ internal sealed class StubLlmProvider(string name, params Func<LlmProviderExcept
             throw failure;
         }
 
-        return Task.FromResult(new LlmEmbeddingResult([0.1f, 0.2f], UsageFor(model)));
+        return Task.FromResult(new LlmEmbeddingResult([0.1f, 0.2f], UsageFor("stub-embed")));
     }
 
     public async IAsyncEnumerable<LlmChunk> StreamAsync(
@@ -76,7 +76,7 @@ internal sealed class StubLlmProvider(string name, params Func<LlmProviderExcept
             throw failure;
         }
 
-        yield return new LlmChunk(null, null, IsFinal: true, Usage: UsageFor(request.Model));
+        yield return new LlmChunk(null, null, IsFinal: true, Usage: UsageFor("stub-model"));
         await Task.CompletedTask;
     }
 
