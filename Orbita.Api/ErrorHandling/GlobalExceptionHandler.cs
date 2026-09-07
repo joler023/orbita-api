@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -25,6 +26,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvalidPasswordResetException => (StatusCodes.Status400BadRequest, "Invalid password reset"),
             MemberNotFoundException => (StatusCodes.Status404NotFound, "Member not found"),
             CannotRemoveLastOwnerException => (StatusCodes.Status409Conflict, "Cannot remove last owner"),
+            PlanNotFoundException => (StatusCodes.Status404NotFound, "Plan not found"),
+            SubscriptionNotFoundException => (StatusCodes.Status404NotFound, "Subscription not found"),
+            SubscriptionAlreadyExistsException => (StatusCodes.Status409Conflict, "Subscription already exists"),
+            InvalidWebhookSignatureException => (StatusCodes.Status400BadRequest, "Invalid webhook signature"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
