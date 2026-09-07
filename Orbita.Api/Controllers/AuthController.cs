@@ -5,10 +5,13 @@ using Orbita.Application.Identity;
 
 namespace Orbita.Api.Controllers;
 
-/// <summary>ORB-A06: login, refresh-token rotation, logout.</summary>
+/// <summary>ORB-A06: login, refresh-token rotation, logout. ORB-A10: password reset.</summary>
 [ApiController]
 [Route("api/auth")]
-public sealed class AuthController(IAuthenticationService authenticationService, IWebHostEnvironment environment) : ControllerBase
+public sealed class AuthController(
+    IAuthenticationService authenticationService,
+    IPasswordResetService passwordResetService,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpPost("login")]
     [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
@@ -52,6 +55,29 @@ public sealed class AuthController(IAuthenticationService authenticationService,
     [Authorize]
     [ProducesResponseType(typeof(CurrentUserIdResponse), StatusCodes.Status200OK)]
     public ActionResult<CurrentUserIdResponse> Me() => Ok(new CurrentUserIdResponse(User.GetUserId()));
+
+    /// <summary>
+    /// Always responds 202 regardless of whether the email belongs to an account
+    /// (ORB-A10) — the response must not be a way to enumerate registered accounts.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> ForgotPassword([FromBody] RequestPasswordResetRequest request, CancellationToken cancellationToken)
+    {
+        await passwordResetService.RequestAsync(request.Email, cancellationToken);
+        return Accepted();
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await passwordResetService.ResetAsync(request, cancellationToken);
+        return NoContent();
+    }
 
     private static CurrentUserResponse ToCurrentUser(AuthenticationResult result)
         => new(result.UserId, result.Email, result.FullName);

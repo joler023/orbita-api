@@ -22,6 +22,7 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
             InvitationNotFoundException => (StatusCodes.Status404NotFound, "Invitation not found"),
             InvalidInvitationException => (StatusCodes.Status400BadRequest, "Invalid invitation"),
+            InvalidPasswordResetException => (StatusCodes.Status400BadRequest, "Invalid password reset"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
