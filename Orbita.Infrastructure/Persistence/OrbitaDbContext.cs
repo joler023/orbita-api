@@ -24,6 +24,7 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     public DbSet<Plan> Plans => Set<Plan>();
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<TwoFactorBackupCode> TwoFactorBackupCodes => Set<TwoFactorBackupCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

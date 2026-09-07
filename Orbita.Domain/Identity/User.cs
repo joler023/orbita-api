@@ -20,6 +20,8 @@ public sealed class User : Entity
         DateTimeOffset? passwordSetAt,
         int failedLoginAttempts,
         DateTimeOffset? lockedUntil,
+        string? twoFactorSecretCiphertext,
+        DateTimeOffset? twoFactorEnabledAt,
         DateTimeOffset createdAt)
         : base(id)
     {
@@ -31,6 +33,8 @@ public sealed class User : Entity
         PasswordSetAt = passwordSetAt;
         FailedLoginAttempts = failedLoginAttempts;
         LockedUntil = lockedUntil;
+        TwoFactorSecretCiphertext = twoFactorSecretCiphertext;
+        TwoFactorEnabledAt = twoFactorEnabledAt;
         CreatedAt = createdAt;
     }
 
@@ -59,6 +63,20 @@ public sealed class User : Entity
 
     public DateTimeOffset? LockedUntil { get; private set; }
 
+    /// <summary>
+    /// The TOTP secret (RFC 6238), encrypted at rest via <c>IUserSecretProtector</c>
+    /// (ORB-A11) — never the raw base32 secret. Set as soon as setup begins, before
+    /// <see cref="TwoFactorEnabledAt"/> is set, so a user who starts setup and
+    /// abandons it just overwrites this on their next attempt instead of needing a
+    /// separate "pending secret" table.
+    /// </summary>
+    public string? TwoFactorSecretCiphertext { get; private set; }
+
+    /// <summary>Null until the person confirms setup with a valid code (ORB-A11).</summary>
+    public DateTimeOffset? TwoFactorEnabledAt { get; private set; }
+
+    public bool HasTwoFactorEnabled => TwoFactorEnabledAt is not null;
+
     public DateTimeOffset CreatedAt { get; }
 
     /// <param name="passwordHash">
@@ -76,6 +94,8 @@ public sealed class User : Entity
             passwordSetAt: now,
             failedLoginAttempts: 0,
             lockedUntil: null,
+            twoFactorSecretCiphertext: null,
+            twoFactorEnabledAt: null,
             createdAt: now);
 
     /// <summary>
@@ -95,6 +115,8 @@ public sealed class User : Entity
             passwordSetAt: null,
             failedLoginAttempts: 0,
             lockedUntil: null,
+            twoFactorSecretCiphertext: null,
+            twoFactorEnabledAt: null,
             createdAt: now);
 
     public void RecordLogin(DateTimeOffset now) => LastLoginAt = now;
@@ -131,6 +153,21 @@ public sealed class User : Entity
     {
         FailedLoginAttempts = 0;
         LockedUntil = null;
+    }
+
+    /// <summary>
+    /// Stores a freshly generated, encrypted TOTP secret, ready to be confirmed
+    /// (ORB-A11). Does not enable two-factor by itself — <see cref="EnableTwoFactor"/>
+    /// does, once the person proves they can generate a matching code.
+    /// </summary>
+    public void BeginTwoFactorSetup(string secretCiphertext) => TwoFactorSecretCiphertext = RequireNonEmpty(secretCiphertext, nameof(secretCiphertext));
+
+    public void EnableTwoFactor(DateTimeOffset now) => TwoFactorEnabledAt = now;
+
+    public void DisableTwoFactor()
+    {
+        TwoFactorSecretCiphertext = null;
+        TwoFactorEnabledAt = null;
     }
 
     private static string NormalizeEmail(string email)

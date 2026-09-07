@@ -19,6 +19,8 @@ public static class DependencyInjection
         services.AddScoped<ITeamMembersService, TeamMembersService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
         services.AddScoped<ISubscriptionWebhookService, SubscriptionWebhookService>();
+        services.AddScoped<ITwoFactorService, TwoFactorService>();
+        services.AddScoped<ITenantSettingsService, TenantSettingsService>();
 
         return services;
     }

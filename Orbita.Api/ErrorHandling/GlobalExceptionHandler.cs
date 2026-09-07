@@ -30,6 +30,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             SubscriptionNotFoundException => (StatusCodes.Status404NotFound, "Subscription not found"),
             SubscriptionAlreadyExistsException => (StatusCodes.Status409Conflict, "Subscription already exists"),
             InvalidWebhookSignatureException => (StatusCodes.Status400BadRequest, "Invalid webhook signature"),
+            TwoFactorRequiredException => (StatusCodes.Status401Unauthorized, "Two-factor code required"),
+            InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
+            TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
+            TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

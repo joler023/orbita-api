@@ -7,6 +7,7 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 ## Última actualización
 
 **2026-09-07** — tras terminar `ORB-A12` (planes y suscripción), en la rama `feature/subscription-billing` (sin mergear a `develop` todavía). `ORB-A08` y `ORB-A10` ya están en `develop`; `ORB-A11` (verificación en dos pasos) está lista en `feature/two-factor-auth`, también sin mergear.
+**2026-09-07** — tras terminar `ORB-A11` (verificación en dos pasos), en la rama `feature/two-factor-auth` (sin mergear a `develop` todavía). `ORB-A08` y `ORB-A10` ya están en `develop`.
 
 ## Qué está implementado
 
@@ -30,11 +31,13 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 
 Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para que salten a la vista antes de tocar el área relacionada:
 
-- El JWT de acceso viaja en cookie `httpOnly`/`SameSite=Lax`, no en header `Authorization`. Solo lleva `sub` (id de usuario), nunca un claim de tenant — cuál organización actúa una sesión se resuelve explícitamente en cada endpoint tenant-scoped, no se infiere del token. Esta decisión pendiente es la razón por la que la política "exigir MFA a todo el equipo" (`ORB-A11`) y cualquier lectura cruzando tenants siguen bloqueadas — ver el punto de RLS abajo.
-- Los permisos por rol viven en `RolePermissions` (`Owner`/`Admin`/`Agent`/`Viewer`), consultados a través de `ITenantAuthorizationService` — cualquier chequeo de rol nuevo pasa por ahí, no se repite inline. `ManageBilling` es Owner-only (a diferencia de `ManageTeam`/`ManageSettings`, que también dan Admin).
-- **Row-Level Security bloquea toda lectura cuando no hay un tenant activo en la sesión** (devuelve cero filas, no "todas"). Por eso `InvitationToken`, `PasswordResetToken`, `RefreshToken` y ahora `Subscription` (ORB-A12) se diseñan a propósito **sin** RLS/query filter — se buscan por un id opaco externo antes de saber a qué tenant pertenecen, y el chequeo de tenant se hace explícito en el código de aplicación en su lugar (defensa en profundidad).
-- `Subscription` elige el proveedor de pago automáticamente por `Tenant.CountryCode` (`CO` → Wompi, el resto → Stripe) — no hay ni debe haber un endpoint para elegir proveedor a mano.
+- El JWT de acceso viaja en cookie `httpOnly`/`SameSite=Lax`, no en header `Authorization` — para que funcione igual con el handshake de SignalR más adelante.
+- El JWT solo lleva `sub` (id de usuario), nunca un claim de tenant. Cuál organización actúa una sesión se resuelve explícitamente en cada endpoint tenant-scoped, no se infiere del token.
+- Las invitaciones toman el tenant de la ruta (`/api/tenants/{tenantId}/...`), no del JWT, para no necesitar nunca un "listar mis membresías cruzando tenants" que pelearía con Row-Level Security.
+- Los permisos por rol viven en `RolePermissions` (`Owner`/`Admin`/`Agent`/`Viewer`), consultados a través de `ITenantAuthorizationService` — cualquier chequeo de rol nuevo pasa por ahí, no se repite inline.
+- **La política "exigir MFA a todo el equipo" (`Tenant.RequireMfaForMembers`) existe pero no se aplica todavía.** Aplicarla de verdad requiere saber, antes de emitir tokens, a qué tenant(s) pertenece quien inicia sesión — y toda lectura cruzando tenants está bloqueada a propósito por la RLS de `memberships` (devuelve cero filas sin un tenant en la sesión). Es la misma decisión pendiente que el JWT sin claim de tenant. No intentar resolverlo con un bypass de RLS.
 - El envío de correo real está pendiente en toda la plataforma (no hay proveedor conectado); se loguea el link en su lugar. Cuando se construya `Notifications`, ese es el reemplazo, no un parche aquí.
+- El secreto TOTP se cifra con la Data Protection API de ASP.NET Core (`IUserSecretProtector`), no con un KMS real — es un reemplazo temporal, igual que el envío de correo por log. Su key ring local no sirve para producción multi-instancia.
 
 ## Cómo retomar el trabajo
 

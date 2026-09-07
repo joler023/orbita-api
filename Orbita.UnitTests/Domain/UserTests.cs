@@ -140,4 +140,41 @@ public sealed class UserTests
         Assert.Equal(0, user.FailedLoginAttempts);
         Assert.False(user.IsLockedOut(Now));
     }
+
+    [Fact]
+    public void BeginTwoFactorSetup_StoresTheCiphertextButDoesNotEnableIt()
+    {
+        var user = User.Create("jane@acme.com", "hash", "Jane Doe", Now);
+
+        user.BeginTwoFactorSetup("encrypted-secret");
+
+        Assert.Equal("encrypted-secret", user.TwoFactorSecretCiphertext);
+        Assert.False(user.HasTwoFactorEnabled);
+    }
+
+    [Fact]
+    public void EnableTwoFactor_SetsEnabledAt()
+    {
+        var user = User.Create("jane@acme.com", "hash", "Jane Doe", Now);
+        user.BeginTwoFactorSetup("encrypted-secret");
+
+        user.EnableTwoFactor(Now);
+
+        Assert.True(user.HasTwoFactorEnabled);
+        Assert.Equal(Now, user.TwoFactorEnabledAt);
+    }
+
+    [Fact]
+    public void DisableTwoFactor_ClearsSecretAndEnabledAt()
+    {
+        var user = User.Create("jane@acme.com", "hash", "Jane Doe", Now);
+        user.BeginTwoFactorSetup("encrypted-secret");
+        user.EnableTwoFactor(Now);
+
+        user.DisableTwoFactor();
+
+        Assert.False(user.HasTwoFactorEnabled);
+        Assert.Null(user.TwoFactorSecretCiphertext);
+        Assert.Null(user.TwoFactorEnabledAt);
+    }
 }

@@ -15,4 +15,6 @@ public enum Permission
 
     /// <summary>Subscribe to, change, or cancel the tenant's plan; view invoices (ORB-A12).</summary>
     ManageBilling,
+    /// <summary>Change tenant-wide settings, e.g. requiring MFA for every member (ORB-A11).</summary>
+    ManageSettings,
 }
