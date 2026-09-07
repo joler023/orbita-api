@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
+using Orbita.Application.Billing;
 using Orbita.Application.Identity;
+using Orbita.Domain.Billing;
 using Orbita.Infrastructure.Persistence;
 using Orbita.IntegrationTests.TestSupport;
 using Testcontainers.PostgreSql;
@@ -68,6 +70,12 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.AddSingleton<IInvitationEmailSender>(InvitationEmails);
             services.RemoveAll<IPasswordResetEmailSender>();
             services.AddSingleton<IPasswordResetEmailSender>(PasswordResetEmails);
+
+            // Neither payment rail has real credentials in tests — hitting them would
+            // mean live network calls to Stripe/Wompi. See FakePaymentProvider.
+            services.RemoveAll<IPaymentProvider>();
+            services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Stripe));
+            services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Wompi));
         });
     }
 

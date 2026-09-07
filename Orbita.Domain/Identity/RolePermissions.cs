@@ -15,6 +15,10 @@ public static class RolePermissions
     {
         [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ViewAuditLog }.ToFrozenSet(),
         [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ViewAuditLog }.ToFrozenSet(),
+        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageBilling }.ToFrozenSet(),
+        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam }.ToFrozenSet(),
+        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings }.ToFrozenSet(),
+        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings }.ToFrozenSet(),
         [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam }.ToFrozenSet(),
         [MemberRole.Viewer] = new HashSet<Permission> { Permission.ViewTeam }.ToFrozenSet(),
     }.ToFrozenDictionary();
