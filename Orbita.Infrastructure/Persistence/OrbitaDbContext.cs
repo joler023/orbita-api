@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Orbita.Domain.Ai;
 using Orbita.Domain.Audit;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Common;
@@ -28,6 +29,14 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<TwoFactorBackupCode> TwoFactorBackupCodes => Set<TwoFactorBackupCode>();
 
+    public DbSet<AiAgent> AiAgents => Set<AiAgent>();
+
+    public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
+
+    public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
+
+    public DbSet<AiRun> AiRuns => Set<AiRun>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -45,5 +54,20 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<AuditLogEntry>()
             .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
+
+        // ORB-C02's four tables. Every one carries tenant_id, so every one gets the
+        // filter — layer 1 of the isolation rule; the RLS policy in the migration is
+        // layer 2 and the tenant_id-first indexes in the configurations are layer 3.
+        modelBuilder.Entity<AiAgent>()
+            .HasQueryFilter(a => tenantContext.TenantId == null || a.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<KnowledgeDocument>()
+            .HasQueryFilter(d => tenantContext.TenantId == null || d.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<KnowledgeChunk>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<AiRun>()
+            .HasQueryFilter(r => tenantContext.TenantId == null || r.TenantId == tenantContext.TenantId);
     }
 }

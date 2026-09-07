@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Ai;
 using Orbita.Application.Common;
 using Orbita.Infrastructure.Ai;
+using Orbita.Domain.Ai;
 using Orbita.Domain.Audit;
 using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
@@ -37,7 +38,9 @@ public static class DependencyInjection
         {
             var connectionString = serviceProvider.GetRequiredService<IConfiguration>().GetConnectionString("Postgres")
                 ?? throw new InvalidOperationException("Missing 'ConnectionStrings:Postgres' configuration value.");
-            options.UseNpgsql(connectionString);
+            // UseVector wires Npgsql's mapping for pgvector's `vector` type, which
+            // knowledge_chunks.embedding needs (ORB-C02/C03).
+            options.UseNpgsql(connectionString, npgsql => npgsql.UseVector());
         });
 
         services.AddScoped<AmbientTenantContext>();
@@ -72,6 +75,7 @@ public static class DependencyInjection
         services.AddScoped<IPaymentProvider>(sp => sp.GetRequiredService<WompiPaymentProvider>());
 
         AddLlmProviders(services);
+        AddKnowledgeBase(services);
 
         services.AddHttpContextAccessor();
         services.AddScoped<IRequestContext, HttpRequestContext>();
@@ -145,4 +149,25 @@ public static class DependencyInjection
 
     /// <summary>Generation is slow; the default 100-second HttpClient timeout cuts long replies off.</summary>
     private static readonly TimeSpan LlmRequestTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// ORB-C02. The extractors are registered as a set and picked by extension inside
+    /// <c>DocumentChunkBuilder</c> — adding a format is a new class plus a line here,
+    /// never an edit to a switch someone has to remember to update.
+    /// </summary>
+    private static void AddKnowledgeBase(IServiceCollection services)
+    {
+        services.AddScoped<IAiAgentRepository, AiAgentRepository>();
+        services.AddScoped<IKnowledgeDocumentRepository, KnowledgeDocumentRepository>();
+        services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
+        services.AddScoped<IAiRunRepository, AiRunRepository>();
+
+        services.AddSingleton<ITextExtractor, PlainTextExtractor>();
+        services.AddSingleton<ITextExtractor, PdfTextExtractor>();
+        services.AddSingleton<ITextExtractor, DocxTextExtractor>();
+
+        services.AddSingleton<IKnowledgeDocumentStorage, LocalDiskKnowledgeDocumentStorage>();
+
+        services.AddHostedService<KnowledgeIndexingHostedService>();
+    }
 }
