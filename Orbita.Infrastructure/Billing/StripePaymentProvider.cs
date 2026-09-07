@@ -107,7 +107,10 @@ public sealed class StripePaymentProvider : IPaymentProvider
         Event stripeEvent;
         try
         {
-            stripeEvent = EventUtility.ConstructEvent(payload, signatureHeader, _webhookSecret);
+            // throwOnApiVersionMismatch: false — this API doesn't pin a specific
+            // Stripe API version yet, so rejecting events whose api_version doesn't
+            // match Stripe.net's bundled expectation would reject every real event.
+            stripeEvent = EventUtility.ConstructEvent(payload, signatureHeader, _webhookSecret, throwOnApiVersionMismatch: false);
         }
         catch (StripeException)
         {
