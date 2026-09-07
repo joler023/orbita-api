@@ -19,6 +19,7 @@ public sealed class TeamInvitationServiceTests
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
     private readonly Mock<IInvitationEmailSender> _emailSender = new();
+    private readonly Mock<ITenantAuthorizationService> _authorization = new();
     private readonly TeamInvitationService _sut;
 
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -33,6 +34,14 @@ public sealed class TeamInvitationServiceTests
             .Setup(u => u.QueryInTenantScopeAsync(It.IsAny<Func<CancellationToken, Task<Membership?>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<Membership?>> query, CancellationToken ct) => query(ct));
 
+        // Whether the caller may manage the team is TenantAuthorizationService's
+        // concern (ORB-A08, tested on its own in TenantAuthorizationServiceTests) —
+        // these orchestration tests only need to know it was asked, and can simulate
+        // it granting or denying access.
+        _authorization
+            .Setup(a => a.EnsurePermissionAsync(_tenantId, _ownerId, Permission.ManageTeam, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         _tenants.Setup(t => t.GetByIdAsync(_tenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Tenant.Create("acme", "Acme Corp", now: Now));
 
@@ -45,16 +54,13 @@ public sealed class TeamInvitationServiceTests
             _unitOfWork.Object,
             _passwordHasher.Object,
             _emailSender.Object,
+            _authorization.Object,
             new FixedTimeProvider(Now));
     }
-
-    private Membership OwnerMembership() => Membership.CreateOwner(_tenantId, _ownerId, Now);
 
     [Fact]
     public async Task InviteAsync_WhenCallerIsOwner_CreatesInvitedUserAndPendingMembership()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(OwnerMembership());
         _users.Setup(r => r.GetByEmailAsync("newperson@acme.com", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
         _passwordHasher.Setup(h => h.Hash(It.IsAny<string>())).Returns("placeholder-hash");
 
@@ -70,9 +76,14 @@ public sealed class TeamInvitationServiceTests
     }
 
     [Fact]
-    public async Task InviteAsync_WhenCallerHasNoMembership_ThrowsForbidden()
+    public async Task InviteAsync_WhenCallerLacksManageTeamPermission_PropagatesForbiddenWithoutCreatingAnything()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync((Membership?)null);
+        // The role/pending/active checks behind this are TenantAuthorizationService's
+        // responsibility (ORB-A08) and are covered on their own in
+        // TenantAuthorizationServiceTests — this only checks the wiring.
+        _authorization
+            .Setup(a => a.EnsurePermissionAsync(_tenantId, _ownerId, Permission.ManageTeam, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ForbiddenException("nope"));
 
         await Assert.ThrowsAsync<ForbiddenException>(
             () => _sut.InviteAsync(_tenantId, _ownerId, new InviteTeamMemberRequest("x@acme.com", MemberRole.Agent), CancellationToken.None));
@@ -80,33 +91,9 @@ public sealed class TeamInvitationServiceTests
         _memberships.Verify(r => r.AddAsync(It.IsAny<Membership>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Theory]
-    [InlineData(MemberRole.Agent)]
-    [InlineData(MemberRole.Viewer)]
-    public async Task InviteAsync_WhenCallerIsNotOwnerOrAdmin_ThrowsForbidden(MemberRole callerRole)
-    {
-        var caller = Membership.Invite(_tenantId, _ownerId, callerRole, Guid.NewGuid(), Now);
-        caller.Accept(Now);
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(caller);
-
-        await Assert.ThrowsAsync<ForbiddenException>(
-            () => _sut.InviteAsync(_tenantId, _ownerId, new InviteTeamMemberRequest("x@acme.com", MemberRole.Agent), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task InviteAsync_WhenCallerHasNotAcceptedTheirOwnInvite_ThrowsForbidden()
-    {
-        var caller = Membership.Invite(_tenantId, _ownerId, MemberRole.Admin, Guid.NewGuid(), Now);
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(caller);
-
-        await Assert.ThrowsAsync<ForbiddenException>(
-            () => _sut.InviteAsync(_tenantId, _ownerId, new InviteTeamMemberRequest("x@acme.com", MemberRole.Agent), CancellationToken.None));
-    }
-
     [Fact]
     public async Task InviteAsync_WhenEmailAlreadyHasAMembership_ThrowsConflict()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(OwnerMembership());
         var existingUser = User.Create("existing@acme.com", "hash", "Existing Person", Now);
         _users.Setup(r => r.GetByEmailAsync("existing@acme.com", It.IsAny<CancellationToken>())).ReturnsAsync(existingUser);
         _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, existingUser.Id, It.IsAny<CancellationToken>()))
@@ -121,7 +108,6 @@ public sealed class TeamInvitationServiceTests
     [Fact]
     public async Task ResendAsync_WithPendingInvitation_InvalidatesOldTokenAndIssuesNew()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(OwnerMembership());
         var membership = Membership.Invite(_tenantId, Guid.NewGuid(), MemberRole.Agent, _ownerId, Now);
         _memberships.Setup(r => r.GetByIdAsync(membership.Id, It.IsAny<CancellationToken>())).ReturnsAsync(membership);
         var invitedUser = User.CreateInvited("invitee@acme.com", "invitee", "placeholder", Now);
@@ -138,7 +124,6 @@ public sealed class TeamInvitationServiceTests
     [Fact]
     public async Task ResendAsync_WhenInvitationIsAlreadyAccepted_ThrowsNotFound()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(OwnerMembership());
         var membership = Membership.Invite(_tenantId, Guid.NewGuid(), MemberRole.Agent, _ownerId, Now);
         membership.Accept(Now);
         _memberships.Setup(r => r.GetByIdAsync(membership.Id, It.IsAny<CancellationToken>())).ReturnsAsync(membership);
@@ -149,7 +134,6 @@ public sealed class TeamInvitationServiceTests
     [Fact]
     public async Task RevokeAsync_WithPendingInvitation_DeactivatesItAndInvalidatesTokens()
     {
-        _memberships.Setup(r => r.GetByTenantAndUserAsync(_tenantId, _ownerId, It.IsAny<CancellationToken>())).ReturnsAsync(OwnerMembership());
         var membership = Membership.Invite(_tenantId, Guid.NewGuid(), MemberRole.Agent, _ownerId, Now);
         _memberships.Setup(r => r.GetByIdAsync(membership.Id, It.IsAny<CancellationToken>())).ReturnsAsync(membership);
 

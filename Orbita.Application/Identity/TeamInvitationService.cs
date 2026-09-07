@@ -7,10 +7,9 @@ using Orbita.Domain.Tenants;
 namespace Orbita.Application.Identity;
 
 /// <summary>
-/// Invites, resends, revokes, and accepts team invitations (ORB-A07). "Owner or Admin
-/// of the target tenant" is checked inline here rather than through a generic
-/// authorization policy — ORB-A08 is the historia that generalizes role checks across
-/// the whole API; this only needs the one rule this feature actually requires.
+/// Invites, resends, revokes, and accepts team invitations (ORB-A07). Caller
+/// authorization ("must be able to manage this tenant's team") goes through
+/// <see cref="ITenantAuthorizationService"/> (ORB-A08), not an inline role check.
 /// </summary>
 public sealed class TeamInvitationService(
     ITenantRepository tenantRepository,
@@ -21,6 +20,7 @@ public sealed class TeamInvitationService(
     IUnitOfWork unitOfWork,
     IPasswordHasher passwordHasher,
     IInvitationEmailSender emailSender,
+    ITenantAuthorizationService authorizationService,
     TimeProvider timeProvider) : ITeamInvitationService
 {
     public static readonly TimeSpan InvitationLifetime = TimeSpan.FromDays(7);
@@ -31,7 +31,7 @@ public sealed class TeamInvitationService(
         InviteTeamMemberRequest request,
         CancellationToken cancellationToken)
     {
-        await EnsureCallerIsOwnerOrAdminAsync(tenantId, callerUserId, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageTeam, cancellationToken);
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var now = timeProvider.GetUtcNow();
@@ -75,7 +75,7 @@ public sealed class TeamInvitationService(
         Guid membershipId,
         CancellationToken cancellationToken)
     {
-        await EnsureCallerIsOwnerOrAdminAsync(tenantId, callerUserId, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageTeam, cancellationToken);
         var membership = await GetPendingInvitationAsync(tenantId, membershipId, cancellationToken);
 
         var now = timeProvider.GetUtcNow();
@@ -95,7 +95,7 @@ public sealed class TeamInvitationService(
 
     public async Task RevokeAsync(Guid tenantId, Guid callerUserId, Guid membershipId, CancellationToken cancellationToken)
     {
-        await EnsureCallerIsOwnerOrAdminAsync(tenantId, callerUserId, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageTeam, cancellationToken);
         var membership = await GetPendingInvitationAsync(tenantId, membershipId, cancellationToken);
 
         membership.Deactivate();
@@ -148,19 +148,6 @@ public sealed class TeamInvitationService(
         var tenant = await RequireTenantAsync(invitationToken.TenantId, cancellationToken);
 
         return new AcceptInvitationResult(tenant.Id, tenant.Slug, targetUser.Id, targetUser.Email, targetUser.FullName);
-    }
-
-    private async Task EnsureCallerIsOwnerOrAdminAsync(Guid tenantId, Guid callerUserId, CancellationToken cancellationToken)
-    {
-        tenantContextSetter.SetTenant(tenantId);
-        var caller = await unitOfWork.QueryInTenantScopeAsync(
-            ct => membershipRepository.GetByTenantAndUserAsync(tenantId, callerUserId, ct),
-            cancellationToken);
-
-        if (caller is null || !caller.IsActive || caller.IsPending || caller.Role is not (MemberRole.Owner or MemberRole.Admin))
-        {
-            throw new ForbiddenException("Only an owner or admin can manage team invitations.");
-        }
     }
 
     private async Task<Membership> GetPendingInvitationAsync(Guid tenantId, Guid membershipId, CancellationToken cancellationToken)

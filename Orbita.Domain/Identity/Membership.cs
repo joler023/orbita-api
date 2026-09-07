@@ -85,4 +85,11 @@ public sealed class Membership : Entity
 
     /// <summary>Used both to revoke a pending invitation and to remove an active member.</summary>
     public void Deactivate() => IsActive = false;
+
+    /// <summary>
+    /// Changes this member's role (ORB-A08). Callers are responsible for the "a tenant
+    /// always keeps at least one Owner" invariant before calling this with a
+    /// non-Owner role — it does not know about the rest of the tenant's memberships.
+    /// </summary>
+    public void ChangeRole(MemberRole role) => Role = role;
 }
