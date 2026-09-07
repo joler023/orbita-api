@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Orbita.Application.Billing;
+using Orbita.Application.Crm;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -34,6 +35,13 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
             TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
             TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
+            PipelineNotFoundException => (StatusCodes.Status404NotFound, "Pipeline not found"),
+            StageNotFoundException => (StatusCodes.Status404NotFound, "Pipeline stage not found"),
+            CannotDeleteLastPipelineException => (StatusCodes.Status409Conflict, "Cannot delete last pipeline"),
+            CannotDeleteLastStageException => (StatusCodes.Status409Conflict, "Cannot delete last stage"),
+            StageHasOpportunitiesException => (StatusCodes.Status409Conflict, "Stage has opportunities"),
+            PipelineHasOpportunitiesException => (StatusCodes.Status409Conflict, "Pipeline has opportunities"),
+            InvalidStageRelocateException => (StatusCodes.Status400BadRequest, "Invalid stage relocate"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
