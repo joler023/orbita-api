@@ -13,6 +13,8 @@ public static class RolePermissions
 {
     private static readonly FrozenDictionary<MemberRole, FrozenSet<Permission>> ByRole = new Dictionary<MemberRole, FrozenSet<Permission>>
     {
+        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageBilling }.ToFrozenSet(),
+        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam }.ToFrozenSet(),
         [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings }.ToFrozenSet(),
         [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings }.ToFrozenSet(),
         [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam }.ToFrozenSet(),

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Orbita.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Orbita.Infrastructure.Persistence;
 namespace Orbita.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(OrbitaDbContext))]
-    partial class OrbitaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907010957_AddBillingPlansAndSubscriptions")]
+    partial class AddBillingPlansAndSubscriptions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -315,37 +318,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("refresh_tokens", (string)null);
                 });
 
-            modelBuilder.Entity("Orbita.Domain.Identity.TwoFactorBackupCode", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CodeHash")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("code_hash");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTimeOffset?>("UsedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("used_at");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "CodeHash")
-                        .IsUnique();
-
-                    b.ToTable("two_factor_backup_codes", (string)null);
-                });
-
             modelBuilder.Entity("Orbita.Domain.Identity.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -392,14 +364,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("password_set_at");
 
-                    b.Property<DateTimeOffset?>("TwoFactorEnabledAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("two_factor_enabled_at");
-
-                    b.Property<string>("TwoFactorSecretCiphertext")
-                        .HasColumnType("text")
-                        .HasColumnName("two_factor_secret_ciphertext");
-
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
@@ -440,10 +404,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
-
-                    b.Property<bool>("RequireMfaForMembers")
-                        .HasColumnType("boolean")
-                        .HasColumnName("require_mfa_for_members");
 
                     b.Property<string>("Slug")
                         .IsRequired()
@@ -494,15 +454,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Orbita.Domain.Identity.RefreshToken", b =>
-                {
-                    b.HasOne("Orbita.Domain.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Identity.TwoFactorBackupCode", b =>
                 {
                     b.HasOne("Orbita.Domain.Identity.User", null)
                         .WithMany()

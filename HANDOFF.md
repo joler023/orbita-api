@@ -6,6 +6,7 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-07** — tras terminar `ORB-A12` (planes y suscripción), en la rama `feature/subscription-billing` (sin mergear a `develop` todavía). `ORB-A08` y `ORB-A10` ya están en `develop`; `ORB-A11` (verificación en dos pasos) está lista en `feature/two-factor-auth`, también sin mergear.
 **2026-09-07** — tras terminar `ORB-A11` (verificación en dos pasos), en la rama `feature/two-factor-auth` (sin mergear a `develop` todavía). `ORB-A08` y `ORB-A10` ya están en `develop`.
 
 ## Qué está implementado
@@ -20,11 +21,11 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 - [x] `ORB-A07` Invitar miembros al equipo
 - [x] `ORB-A08` Roles y permisos
 - [x] `ORB-A10` Recuperación de contraseña
-- [x] `ORB-A11` Verificación en dos pasos (política MFA de tenant guardada, **no aplicada en runtime** — ver abajo)
-- [ ] `ORB-A12` Planes y suscripción — siguiente
+- [x] `ORB-A11` Verificación en dos pasos — en `feature/two-factor-auth`, sin mergear
+- [x] `ORB-A12` Planes y suscripción — **código completo, sin credenciales reales conectadas** (ver "Riesgos y deuda conocida")
 - [ ] `ORB-A13` Medición de consumo — necesita que exista Track C (agentes de IA) primero
-- [ ] `ORB-A14` Límites del plan — depende de A12/A13
-- [ ] `ORB-A15` Bitácora de auditoría — sin bloqueos
+- [ ] `ORB-A14` Límites del plan — depende de A12 (listo) y A13 (no)
+- [ ] `ORB-A15` Bitácora de auditoría — sin bloqueos, siguiente candidata natural
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
@@ -49,6 +50,7 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 ## Riesgos y deuda conocida
 
 - **Sin envío real de correo** — bloquea probar invitaciones/reset de contraseña/2FA con un buzón real, no solo con el log.
-- **Política de MFA de tenant sin aplicar** (ver arriba) — el flag existe y se puede configurar, pero ningún login lo respeta todavía.
-- **Cifrado de secretos con un placeholder, no KMS real** — ver arriba; reemplazar `IUserSecretProtector` antes de producción.
+- **`ORB-A12`: ni Stripe ni Wompi tienen credenciales reales conectadas.** El código está completo y probado (con un `IPaymentProvider` falso en los tests de integración), pero conectar una cuenta real requiere: crear los Price de Stripe por plan (`Plan.SetStripePriceId`), registrar los webhooks en ambos dashboards, y llenar `Billing:Stripe:*`/`Billing:Wompi:*` en `appsettings`. Ver la sección "Billing" de `CLAUDE.md` para el detalle completo.
+- **`ORB-A12`: Wompi no tiene forma de cobrar de manera recurrente todavía.** Wompi no tiene objeto de suscripción — hace falta un scheduler propio que cree una transacción por cada tenant en Wompi por ciclo de facturación, y ese scheduler no existe. No conectar una cuenta real de Wompi en producción hasta construirlo.
+- **`ORB-A11`: política de MFA de tenant sin aplicar** — el flag `Tenant.RequireMfaForMembers` existe y se puede configurar, pero ningún login lo respeta todavía (misma causa raíz que el JWT sin claim de tenant).
 - **`orbita-front` sigue en scaffold** — no hay cliente HTTP ni pantallas reales todavía, así que ningún endpoint de este repo tiene todavía un consumidor real más allá de las pruebas de integración.

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -16,6 +17,8 @@ public static class DependencyInjection
         services.AddScoped<ITeamInvitationService, TeamInvitationService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ITeamMembersService, TeamMembersService>();
+        services.AddScoped<ISubscriptionService, SubscriptionService>();
+        services.AddScoped<ISubscriptionWebhookService, SubscriptionWebhookService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ITenantSettingsService, TenantSettingsService>();
 
