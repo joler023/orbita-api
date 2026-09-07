@@ -1,6 +1,7 @@
 using Moq;
 using Orbita.Application.Identity;
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
 using Orbita.UnitTests.TestSupport;
@@ -16,6 +17,8 @@ public sealed class OrganizationRegistrationServiceTests
     private readonly Mock<ITenantRepository> _tenants = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IMembershipRepository> _memberships = new();
+    private readonly Mock<IPipelineRepository> _pipelines = new();
+    private readonly Mock<IPipelineStageRepository> _stages = new();
     private readonly Mock<ITenantContextSetter> _tenantContextSetter = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
@@ -31,6 +34,8 @@ public sealed class OrganizationRegistrationServiceTests
             _tenants.Object,
             _users.Object,
             _memberships.Object,
+            _pipelines.Object,
+            _stages.Object,
             _tenantContextSetter.Object,
             _unitOfWork.Object,
             _passwordHasher.Object,
@@ -51,6 +56,10 @@ public sealed class OrganizationRegistrationServiceTests
         _memberships.Verify(
             m => m.AddAsync(It.Is<Membership>(x => x.Role == MemberRole.Owner && x.UserId == result.UserId), It.IsAny<CancellationToken>()),
             Times.Once);
+        _pipelines.Verify(
+            p => p.AddAsync(It.Is<Pipeline>(x => x.Name == DefaultSalesPipeline.PipelineName && x.IsDefault), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _stages.Verify(s => s.AddAsync(It.IsAny<PipelineStage>(), It.IsAny<CancellationToken>()), Times.Exactly(DefaultSalesPipeline.Stages.Count));
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 

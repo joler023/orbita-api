@@ -6,13 +6,21 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
+**2026-09-07** — `ORB-D04` (pipelines y etapas) en `feature/d04-pipelines`. El track A (`ORB-A08`–`A15` salvo A13/A14) sigue en `develop`.
 
 ## Qué está implementado
 
 Ver la sección "Qué hay implementado hoy" en [`README.md`](./README.md) — se mantiene sincronizada ahí, no se duplica aquí.
 
-Track A (Plataforma, Identidad y Facturación — dueño de este repo):
+Track D (CRM — dueño de pipelines/contactos en este repo, vertical full-stack):
+
+- [x] `ORB-D04` Pipelines y etapas — default `Ventas` al registrar; kanban de oportunidades es `ORB-D05`
+- [ ] `ORB-D05` Tablero de oportunidades
+- [ ] `ORB-D02` Ficha de contacto (depende también de `ORB-B03`)
+- [ ] `ORB-D06` Crear oportunidad desde la conversación (depende de `ORB-D05` y `ORB-B13`)
+- [ ] `ORB-D03` Búsqueda de contactos
+
+Track A (Plataforma, Identidad y Facturación):
 
 - [x] `ORB-A05` Registro de organización
 - [x] `ORB-A09` Aislamiento entre organizaciones

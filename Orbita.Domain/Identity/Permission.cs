@@ -19,4 +19,10 @@ public enum Permission
     ManageBilling,
     /// <summary>Change tenant-wide settings, e.g. requiring MFA for every member (ORB-A11).</summary>
     ManageSettings,
+
+    /// <summary>See the tenant's pipelines and stages (ORB-D04).</summary>
+    ViewPipeline,
+
+    /// <summary>Create, rename, reorder, or delete pipelines and stages (ORB-D04).</summary>
+    ManagePipeline,
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Audit;
 using Orbita.Application.Billing;
+using Orbita.Application.Crm;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -24,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<ISubscriptionWebhookService, SubscriptionWebhookService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ITenantSettingsService, TenantSettingsService>();
+        services.AddScoped<IPipelineService, PipelineService>();
 
         return services;
     }

@@ -9,6 +9,7 @@ using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Billing;
@@ -52,6 +53,9 @@ public static class DependencyInjection
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<ITwoFactorBackupCodeRepository, TwoFactorBackupCodeRepository>();
+        services.AddScoped<IPipelineRepository, PipelineRepository>();
+        services.AddScoped<IPipelineStageRepository, PipelineStageRepository>();
+        services.AddScoped<IOpportunityRepository, OpportunityRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
