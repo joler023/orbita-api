@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Common;
 using Orbita.Application.Identity;
+using Orbita.Domain.Audit;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
+using Orbita.Infrastructure.Common;
 using Orbita.Infrastructure.Identity;
 using Orbita.Infrastructure.Persistence;
 using Orbita.Infrastructure.Persistence.Repositories;
@@ -41,10 +44,14 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IInvitationTokenRepository, InvitationTokenRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
         services.AddSingleton<IPasswordResetEmailSender, LoggingPasswordResetEmailSender>();
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<IRequestContext, HttpRequestContext>();
 
         return services;
     }
