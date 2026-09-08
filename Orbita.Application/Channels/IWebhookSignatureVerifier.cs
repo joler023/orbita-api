@@ -9,5 +9,5 @@ namespace Orbita.Application.Channels;
 public interface IWebhookSignatureVerifier
 {
     /// <exception cref="Billing.InvalidWebhookSignatureException">The header is missing, malformed, or doesn't match.</exception>
-    void Verify(ReadOnlySpan<byte> rawBody, string? signatureHeader);
+    void Verify(byte[] rawBody, string? signatureHeader);
 }

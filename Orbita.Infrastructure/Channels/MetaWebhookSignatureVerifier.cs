@@ -17,7 +17,7 @@ public sealed class MetaWebhookSignatureVerifier(IConfiguration configuration) :
 {
     private const string SignaturePrefix = "sha256=";
 
-    public void Verify(ReadOnlySpan<byte> rawBody, string? signatureHeader)
+    public void Verify(byte[] rawBody, string? signatureHeader)
     {
         var appSecret = configuration["Channels:Meta:AppSecret"];
         if (string.IsNullOrEmpty(appSecret)
