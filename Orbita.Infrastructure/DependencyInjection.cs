@@ -104,6 +104,10 @@ public static class DependencyInjection
         services.AddSingleton<IWebhookDeduplicator, MemoryCacheWebhookDeduplicator>();
         services.AddScoped<IInboundWebhookQueue, PostgresInboundWebhookQueue>();
 
+        // ORB-B03: inbound message normalization.
+        services.AddSingleton<IChannelAdapter, WhatsAppChannelAdapter>();
+        services.AddHostedService<InboundMessageWorker>();
+
         // Graph API clients: typed HttpClients, same registration shape as Wompi. The
         // factory's default request/response logging is removed on purpose — it writes
         // the full request URI at Information level, and Meta's OAuth endpoints carry
