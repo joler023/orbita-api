@@ -30,7 +30,9 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             PlanNotFoundException => (StatusCodes.Status404NotFound, "Plan not found"),
             SubscriptionNotFoundException => (StatusCodes.Status404NotFound, "Subscription not found"),
             SubscriptionAlreadyExistsException => (StatusCodes.Status409Conflict, "Subscription already exists"),
-            InvalidWebhookSignatureException => (StatusCodes.Status400BadRequest, "Invalid webhook signature"),
+            // 401, not 400: a signature mismatch means "prove you're Meta/Stripe/Wompi",
+            // the same concept as any other failed authentication (ORB-B02).
+            InvalidWebhookSignatureException => (StatusCodes.Status401Unauthorized, "Invalid webhook signature"),
             TwoFactorRequiredException => (StatusCodes.Status401Unauthorized, "Two-factor code required"),
             InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
             TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
