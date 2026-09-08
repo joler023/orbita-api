@@ -188,6 +188,47 @@ public sealed class Message
             now);
     }
 
+    /// <summary>Same persist-first contract as <see cref="OutboundText"/> (ORB-B06) — <paramref name="mediaKey"/> must already have been uploaded and validated as belonging to this tenant before this is called.</summary>
+    public static Message OutboundMedia(
+        Guid tenantId,
+        Guid conversationId,
+        string mediaKey,
+        string mediaMime,
+        string? caption,
+        Guid? sentByUserId,
+        DateTimeOffset now)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id is required.", nameof(tenantId));
+        }
+
+        if (string.IsNullOrWhiteSpace(mediaKey))
+        {
+            throw new ArgumentException("Media key is required.", nameof(mediaKey));
+        }
+
+        return new Message(
+            Guid.NewGuid(),
+            tenantId,
+            conversationId,
+            MessageDirection.Outbound,
+            MessageCategory.Service,
+            caption,
+            mediaKey,
+            RequireLength(mediaMime, MediaMimeMaxLength, nameof(mediaMime)),
+            externalId: null,
+            replyToExternalId: null,
+            templateId: null,
+            sentByUserId,
+            aiRunId: null,
+            MessageStatus.Queued,
+            sentAt: null,
+            deliveredAt: null,
+            readAt: null,
+            now);
+    }
+
     /// <summary>Meta accepted the send — <paramref name="externalId"/> is the wamid it assigned.</summary>
     public void MarkSent(string externalId, DateTimeOffset now)
     {
