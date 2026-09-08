@@ -188,6 +188,46 @@ public sealed class Message
             now);
     }
 
+    /// <summary>
+    /// Same persist-first contract as <see cref="OutboundText"/> — sent outside the
+    /// service window with an approved template (ORB-B07). <paramref name="renderedBody"/>
+    /// is already-substituted text; the template's own category becomes the message's.
+    /// </summary>
+    public static Message OutboundTemplate(
+        Guid tenantId,
+        Guid conversationId,
+        Guid templateId,
+        string renderedBody,
+        MessageCategory category,
+        Guid? sentByUserId,
+        DateTimeOffset now)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id is required.", nameof(tenantId));
+        }
+
+        return new Message(
+            Guid.NewGuid(),
+            tenantId,
+            conversationId,
+            MessageDirection.Outbound,
+            category,
+            renderedBody,
+            mediaKey: null,
+            mediaMime: null,
+            externalId: null,
+            replyToExternalId: null,
+            templateId,
+            sentByUserId,
+            aiRunId: null,
+            MessageStatus.Queued,
+            sentAt: null,
+            deliveredAt: null,
+            readAt: null,
+            now);
+    }
+
     /// <summary>Same persist-first contract as <see cref="OutboundText"/> (ORB-B06) — <paramref name="mediaKey"/> must already have been uploaded and validated as belonging to this tenant before this is called.</summary>
     public static Message OutboundMedia(
         Guid tenantId,

@@ -43,4 +43,7 @@ public enum Permission
 
     /// <summary>Send outbound messages on a conversation (ORB-B05). Agents included.</summary>
     SendMessages,
+
+    /// <summary>Register message templates locally and sync their approval status from Meta (ORB-B07).</summary>
+    ManageTemplates,
 }
