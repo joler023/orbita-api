@@ -77,6 +77,15 @@ public sealed class ConversationTests
     }
 
     [Fact]
+    public void CanSendFreeForm_AfterWindow_IsFalse()
+    {
+        var conversation = Conversation.Open(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now);
+        conversation.RegisterInbound(Now, "hola");
+
+        Assert.False(conversation.CanSendFreeForm(Now + Conversation.ServiceWindow));
+    }
+
+    [Fact]
     public void RegisterOutbound_ByHuman_SetsFirstResponseSecondsOnce()
     {
         var conversation = Conversation.Open(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now);

@@ -113,4 +113,66 @@ public sealed class OutboundMessageServiceTests
         await Assert.ThrowsAsync<ChannelNotConnectedException>(
             () => _sut.SendTextAsync(TenantId, CallerId, conversation.Id, new SendTextRequest("hola"), CancellationToken.None));
     }
+
+    [Fact]
+    public async Task SendTextAsync_OutsideWindow_Throws()
+    {
+        var conversation = Conversation.Open(TenantId, Guid.NewGuid(), Guid.NewGuid(), Now.AddDays(-2));
+        conversation.RegisterInbound(Now.AddDays(-2), "hola"); // window already lapsed by Now
+        var account = ChannelAccount.ConnectWhatsApp(TenantId, "phone-1", "waba-1", "Acme", null, "local://a", null, Now.AddDays(-2));
+        account.MarkConnected(Now.AddDays(-2));
+        _conversations.Setup(c => c.GetByIdAsync(conversation.Id, It.IsAny<CancellationToken>())).ReturnsAsync(conversation);
+        _channelAccounts.Setup(a => a.GetByIdAsync(conversation.ChannelAccountId, It.IsAny<CancellationToken>())).ReturnsAsync(account);
+
+        await Assert.ThrowsAsync<ServiceWindowClosedException>(
+            () => _sut.SendTextAsync(TenantId, CallerId, conversation.Id, new SendTextRequest("hola"), CancellationToken.None));
+
+        _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendTemplateAsync_OutsideWindow_StillSucceeds()
+    {
+        var (conversation, account) = SetUpClosedWindowConversation();
+        var template = MessageTemplate.Create(TenantId, account.Id, "greeting", MessageCategory.Utility, "es", "Hola {{1}}", Now);
+        template.ApplyMetaStatus(TemplateStatus.Approved, null, Now);
+        _messageTemplates.Setup(t => t.GetByIdAsync(template.Id, It.IsAny<CancellationToken>())).ReturnsAsync(template);
+
+        var result = await _sut.SendTemplateAsync(TenantId, CallerId, conversation.Id, new SendTemplateRequest(template.Id, ["Ana"]), CancellationToken.None);
+
+        Assert.Equal("Hola Ana", result.Body);
+        Assert.Equal(MessageCategory.Utility, result.Category);
+    }
+
+    [Fact]
+    public async Task SendTemplateAsync_WithPendingTemplate_Throws()
+    {
+        var (conversation, account) = SetUpClosedWindowConversation();
+        var template = MessageTemplate.Create(TenantId, account.Id, "greeting", MessageCategory.Utility, "es", "Hola {{1}}", Now);
+        _messageTemplates.Setup(t => t.GetByIdAsync(template.Id, It.IsAny<CancellationToken>())).ReturnsAsync(template);
+
+        await Assert.ThrowsAsync<TemplateNotApprovedException>(
+            () => _sut.SendTemplateAsync(TenantId, CallerId, conversation.Id, new SendTemplateRequest(template.Id, ["Ana"]), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SendTemplateAsync_ForAnUnknownTemplate_ThrowsNotFound()
+    {
+        var (conversation, _) = SetUpClosedWindowConversation();
+        _messageTemplates.Setup(t => t.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((MessageTemplate?)null);
+
+        await Assert.ThrowsAsync<TemplateNotFoundException>(
+            () => _sut.SendTemplateAsync(TenantId, CallerId, conversation.Id, new SendTemplateRequest(Guid.NewGuid(), []), CancellationToken.None));
+    }
+
+    private (Conversation Conversation, ChannelAccount Account) SetUpClosedWindowConversation()
+    {
+        var conversation = Conversation.Open(TenantId, Guid.NewGuid(), Guid.NewGuid(), Now.AddDays(-2));
+        conversation.RegisterInbound(Now.AddDays(-2), "hola");
+        var account = ChannelAccount.ConnectWhatsApp(TenantId, "phone-1", "waba-1", "Acme", null, "local://a", null, Now.AddDays(-2));
+        account.MarkConnected(Now.AddDays(-2));
+        _conversations.Setup(c => c.GetByIdAsync(conversation.Id, It.IsAny<CancellationToken>())).ReturnsAsync(conversation);
+        _channelAccounts.Setup(a => a.GetByIdAsync(conversation.ChannelAccountId, It.IsAny<CancellationToken>())).ReturnsAsync(account);
+        return (conversation, account);
+    }
 }
