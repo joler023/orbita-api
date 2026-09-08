@@ -51,4 +51,65 @@ public sealed class MessageTests
 
         Assert.Throws<ArgumentException>(() => message.MarkMediaStored("", "image/jpeg"));
     }
+
+    private static Message QueuedOutbound()
+        => Message.OutboundText(Guid.NewGuid(), Guid.NewGuid(), "hola", Guid.NewGuid(), MessageCategory.Service, Now);
+
+    [Fact]
+    public void MarkDelivered_SetsStatusAndDeliveredAt()
+    {
+        var message = QueuedOutbound();
+        message.MarkSent("wamid.out", Now);
+
+        message.MarkDelivered(Now.AddSeconds(5));
+
+        Assert.Equal(MessageStatus.Delivered, message.Status);
+        Assert.Equal(Now.AddSeconds(5), message.DeliveredAt);
+    }
+
+    [Fact]
+    public void MarkDelivered_AfterRead_DoesNotDowngrade()
+    {
+        var message = QueuedOutbound();
+        message.MarkSent("wamid.out", Now);
+        message.MarkRead(Now.AddSeconds(5));
+
+        message.MarkDelivered(Now.AddSeconds(10));
+
+        Assert.Equal(MessageStatus.Read, message.Status);
+        Assert.Equal(Now.AddSeconds(5), message.DeliveredAt);
+    }
+
+    [Fact]
+    public void MarkRead_WithoutPriorDelivered_BackfillsDeliveredAt()
+    {
+        var message = QueuedOutbound();
+        message.MarkSent("wamid.out", Now);
+
+        message.MarkRead(Now.AddSeconds(5));
+
+        Assert.Equal(MessageStatus.Read, message.Status);
+        Assert.Equal(Now.AddSeconds(5), message.DeliveredAt);
+        Assert.Equal(Now.AddSeconds(5), message.ReadAt);
+    }
+
+    [Fact]
+    public void ResetForRetry_WhenFailed_RequeuesAndClearsError()
+    {
+        var message = QueuedOutbound();
+        message.MarkFailed("130429");
+
+        message.ResetForRetry();
+
+        Assert.Equal(MessageStatus.Queued, message.Status);
+        Assert.Null(message.ErrorCode);
+    }
+
+    [Fact]
+    public void ResetForRetry_WhenNotFailed_Throws()
+    {
+        var message = QueuedOutbound();
+
+        Assert.Throws<InvalidOperationException>(message.ResetForRetry);
+    }
 }

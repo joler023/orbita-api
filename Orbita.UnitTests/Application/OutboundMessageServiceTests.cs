@@ -165,6 +165,58 @@ public sealed class OutboundMessageServiceTests
             () => _sut.SendTemplateAsync(TenantId, CallerId, conversation.Id, new SendTemplateRequest(Guid.NewGuid(), []), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task RetryAsync_FailedWithTransientError_RequeuesAndClearsError()
+    {
+        var (conversation, account) = SetUpClosedWindowConversation();
+        var message = Message.OutboundText(TenantId, conversation.Id, "hola", CallerId, MessageCategory.Service, Now.AddMinutes(-5));
+        message.MarkFailed("130429");
+        _messages.Setup(m => m.GetByIdAsync(message.Id, It.IsAny<CancellationToken>())).ReturnsAsync(message);
+
+        var result = await _sut.RetryAsync(TenantId, CallerId, message.Id, CancellationToken.None);
+
+        Assert.Equal(MessageStatus.Queued, result.Status);
+        _outboundQueue.Verify(q => q.EnqueueAsync(It.Is<OutboundMessageJob>(j => j.ChannelAccountId == account.Id), It.IsAny<CancellationToken>()), Times.Once);
+        _outboxWriter.Verify(w => w.StageAsync(TenantId, nameof(Message), message.Id, "message.queued", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RetryAsync_MessageNotFailed_Throws()
+    {
+        var (conversation, _) = SetUpClosedWindowConversation();
+        var message = Message.OutboundText(TenantId, conversation.Id, "hola", CallerId, MessageCategory.Service, Now.AddMinutes(-5));
+        _messages.Setup(m => m.GetByIdAsync(message.Id, It.IsAny<CancellationToken>())).ReturnsAsync(message);
+
+        await Assert.ThrowsAsync<MessageNotRetryableException>(
+            () => _sut.RetryAsync(TenantId, CallerId, message.Id, CancellationToken.None));
+
+        _outboundQueue.Verify(q => q.EnqueueAsync(It.IsAny<OutboundMessageJob>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RetryAsync_FailedWithNonTransientError_Throws()
+    {
+        var (conversation, _) = SetUpClosedWindowConversation();
+        var message = Message.OutboundText(TenantId, conversation.Id, "hola", CallerId, MessageCategory.Service, Now.AddMinutes(-5));
+        message.MarkFailed("131047");
+        _messages.Setup(m => m.GetByIdAsync(message.Id, It.IsAny<CancellationToken>())).ReturnsAsync(message);
+
+        await Assert.ThrowsAsync<MessageNotRetryableException>(
+            () => _sut.RetryAsync(TenantId, CallerId, message.Id, CancellationToken.None));
+
+        _outboundQueue.Verify(q => q.EnqueueAsync(It.IsAny<OutboundMessageJob>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RetryAsync_ForAnUnknownMessage_ThrowsNotFound()
+    {
+        _messages.Setup(m => m.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Message?)null);
+
+        await Assert.ThrowsAsync<MessageNotFoundException>(
+            () => _sut.RetryAsync(TenantId, CallerId, Guid.NewGuid(), CancellationToken.None));
+    }
+
     private (Conversation Conversation, ChannelAccount Account) SetUpClosedWindowConversation()
     {
         var conversation = Conversation.Open(TenantId, Guid.NewGuid(), Guid.NewGuid(), Now.AddDays(-2));

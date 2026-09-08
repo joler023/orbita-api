@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Orbita.Application.Channels;
 using Orbita.Application.Inbox;
@@ -51,7 +52,8 @@ public sealed class InboundMessageProcessorTests
             _mediaStorage.Object,
             _outboxWriter.Object,
             _unitOfWork.Object,
-            new FixedTimeProvider(Now));
+            new FixedTimeProvider(Now),
+            NullLogger<InboundMessageProcessor>.Instance);
     }
 
     [Fact]
@@ -100,7 +102,7 @@ public sealed class InboundMessageProcessorTests
     }
 
     [Fact]
-    public async Task ProcessAsync_StatusUpdate_IsIgnoredWithoutError()
+    public async Task ProcessAsync_StatusUpdate_ForUnknownExternalId_IsIgnoredWithoutError()
     {
         SetupItems(new InboundStatusUpdate("phone-1", "wamid.1", ChannelKind.WhatsApp, MessageStatus.Delivered, null, Now));
 
@@ -109,6 +111,55 @@ public sealed class InboundMessageProcessorTests
         Assert.Null(exception);
         _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StatusUpdate_Delivered_MarksMessageAndStagesEvent()
+    {
+        var message = Message.OutboundText(TenantId, Guid.NewGuid(), "hola", Guid.NewGuid(), MessageCategory.Service, Now.AddMinutes(-1));
+        message.MarkSent("wamid.1", Now.AddMinutes(-1));
+        _messages.Setup(m => m.FindByExternalIdAsync("wamid.1", It.IsAny<CancellationToken>())).ReturnsAsync(message);
+        SetupItems(new InboundStatusUpdate("phone-1", "wamid.1", ChannelKind.WhatsApp, MessageStatus.Delivered, null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        Assert.Equal(MessageStatus.Delivered, message.Status);
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Message), message.Id, "message.delivered", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StatusUpdate_Read_MarksMessageAndStagesEvent()
+    {
+        var message = Message.OutboundText(TenantId, Guid.NewGuid(), "hola", Guid.NewGuid(), MessageCategory.Service, Now.AddMinutes(-1));
+        message.MarkSent("wamid.1", Now.AddMinutes(-1));
+        _messages.Setup(m => m.FindByExternalIdAsync("wamid.1", It.IsAny<CancellationToken>())).ReturnsAsync(message);
+        SetupItems(new InboundStatusUpdate("phone-1", "wamid.1", ChannelKind.WhatsApp, MessageStatus.Read, null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        Assert.Equal(MessageStatus.Read, message.Status);
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Message), message.Id, "message.read", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StatusUpdate_Failed_MarksMessageWithErrorCodeAndStagesEvent()
+    {
+        var message = Message.OutboundText(TenantId, Guid.NewGuid(), "hola", Guid.NewGuid(), MessageCategory.Service, Now.AddMinutes(-1));
+        message.MarkSent("wamid.1", Now.AddMinutes(-1));
+        _messages.Setup(m => m.FindByExternalIdAsync("wamid.1", It.IsAny<CancellationToken>())).ReturnsAsync(message);
+        SetupItems(new InboundStatusUpdate("phone-1", "wamid.1", ChannelKind.WhatsApp, MessageStatus.Failed, "131047", Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        Assert.Equal(MessageStatus.Failed, message.Status);
+        Assert.Equal("131047", message.ErrorCode);
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Message), message.Id, "message.failed", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
