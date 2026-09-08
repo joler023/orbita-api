@@ -35,6 +35,8 @@ public static class DependencyInjection
         services.AddScoped<IInboundMessageProcessor, InboundMessageProcessor>();
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IOutboxDispatchService, OutboxDispatchService>();
+        services.AddScoped<IOutboundMessageService, OutboundMessageService>();
+        services.AddScoped<IOutboundMessageDispatchService, OutboundMessageDispatchService>();
         services.AddScoped<IPipelineService, PipelineService>();
         services.AddScoped<IOpportunityService, OpportunityService>();
         services.AddScoped<IContactService, ContactService>();

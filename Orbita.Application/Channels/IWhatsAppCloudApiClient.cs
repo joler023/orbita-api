@@ -19,6 +19,11 @@ public interface IWhatsAppCloudApiClient
     /// </summary>
     /// <exception cref="MetaApiException">Subscription or callback verification failed.</exception>
     Task SubscribeWebhookAsync(string accessToken, string wabaId, string? callbackUrl, string? verifyToken, CancellationToken cancellationToken);
+
+    /// <summary>ORB-B05: sends a free-form text message.</summary>
+    /// <returns>The wamid Meta assigned to the sent message.</returns>
+    /// <exception cref="MetaApiException">Meta rejected the send — <see cref="MetaApiException.ErrorCode"/> carries its numeric error.code.</exception>
+    Task<string> SendTextAsync(string accessToken, string phoneNumberId, string toWaId, string body, CancellationToken cancellationToken);
 }
 
 /// <param name="DisplayPhoneNumber">As Meta formats it, e.g. "+57 300 1112233".</param>
