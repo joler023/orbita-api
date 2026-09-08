@@ -2,6 +2,7 @@ using Moq;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Application.Inbox;
+using Orbita.Application.Media;
 using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
@@ -22,6 +23,7 @@ public sealed class OutboundMessageServiceTests
     private readonly Mock<IMessageRepository> _messages = new();
     private readonly Mock<IOutboundMessageQueue> _outboundQueue = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
+    private readonly Mock<IMediaUrlSigner> _mediaUrlSigner = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly OutboundMessageService _sut;
@@ -34,6 +36,7 @@ public sealed class OutboundMessageServiceTests
             _messages.Object,
             _outboundQueue.Object,
             _outboxWriter.Object,
+            _mediaUrlSigner.Object,
             _authorization.Object,
             _unitOfWork.Object,
             new FixedTimeProvider(Now));

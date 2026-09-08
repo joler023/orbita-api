@@ -3,7 +3,7 @@ using Orbita.Domain.Inbox;
 
 namespace Orbita.Application.Inbox;
 
-/// <param name="MediaUrl">Null until ORB-B06 wires up signed media URLs.</param>
+/// <param name="MediaUrl">A 15-minute signed URL when the message has media (ORB-B06); null otherwise.</param>
 /// <param name="ErrorMessage">Human-readable (Spanish) translation of <paramref name="ErrorCode"/>, computed at read time — see MetaErrorCatalog.</param>
 public sealed record MessageDto(
     Guid Id,
@@ -21,14 +21,14 @@ public sealed record MessageDto(
     DateTimeOffset? ReadAt,
     DateTimeOffset CreatedAt)
 {
-    public static MessageDto From(Message message)
+    public static MessageDto From(Message message, string? mediaUrl = null)
         => new(
             message.Id,
             message.ConversationId,
             message.Direction,
             message.Category,
             message.Body,
-            MediaUrl: null,
+            mediaUrl,
             message.Status,
             message.ErrorCode,
             message.ErrorCode is null ? null : MetaErrorCatalog.Describe(message.ErrorCode).MessageEs,

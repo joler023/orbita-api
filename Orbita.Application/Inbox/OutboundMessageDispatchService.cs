@@ -1,5 +1,6 @@
 using Orbita.Application.Channels;
 using Orbita.Application.Crm;
+using Orbita.Application.Media;
 using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
@@ -16,6 +17,7 @@ public sealed class OutboundMessageDispatchService(
     IChannelAccountRepository channelAccounts,
     IEnumerable<IChannelAdapter> adapters,
     IOutboundMessageRateLimiter rateLimiter,
+    IMediaStorage mediaStorage,
     IOutboxWriter outboxWriter,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IOutboundMessageDispatchService
@@ -45,7 +47,9 @@ public sealed class OutboundMessageDispatchService(
                 throw new ChannelSendException("no_recipient_id", isTransient: false, "The contact has no identifier for this channel.");
             }
 
-            var externalId = await adapter.SendTextAsync(account, toExternalId, message.Body ?? string.Empty, cancellationToken);
+            var externalId = message.MediaKey is null
+                ? await adapter.SendTextAsync(account, toExternalId, message.Body ?? string.Empty, cancellationToken)
+                : await SendMediaAsync(account, adapter, toExternalId, message, cancellationToken);
 
             message.MarkSent(externalId, now);
             job.MarkSent();
@@ -77,6 +81,17 @@ public sealed class OutboundMessageDispatchService(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<string> SendMediaAsync(ChannelAccount account, IChannelAdapter adapter, string toExternalId, Message message, CancellationToken cancellationToken)
+    {
+        var content = await mediaStorage.OpenReadAsync(message.MediaKey!, cancellationToken)
+            ?? throw new ChannelSendException("media_not_found", isTransient: false, "The message's media file is missing from storage.");
+
+        await using (content)
+        {
+            return await adapter.SendMediaAsync(account, toExternalId, content, message.MediaMime ?? "application/octet-stream", message.Body, cancellationToken);
+        }
     }
 
     private static TimeSpan Backoff(short attempts) => TimeSpan.FromSeconds(30 * Math.Pow(2, attempts));

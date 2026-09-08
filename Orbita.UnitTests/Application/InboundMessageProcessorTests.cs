@@ -1,6 +1,7 @@
 using Moq;
 using Orbita.Application.Channels;
 using Orbita.Application.Inbox;
+using Orbita.Application.Media;
 using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
@@ -14,12 +15,15 @@ public sealed class InboundMessageProcessorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 8, 12, 0, 0, TimeSpan.Zero);
     private static readonly Guid TenantId = Guid.NewGuid();
-    private static readonly Guid ChannelAccountId = Guid.NewGuid();
+    private static readonly ChannelAccount FakeAccount = ChannelAccount.ConnectWhatsApp(TenantId, "phone-1", "waba-1", "Acme", null, "local://a", null, Now);
+    private static readonly Guid ChannelAccountId = FakeAccount.Id;
 
     private readonly Mock<IChannelAdapter> _adapter = new();
+    private readonly Mock<IChannelAccountRepository> _channelAccounts = new();
     private readonly Mock<IContactRepository> _contacts = new();
     private readonly Mock<IConversationRepository> _conversations = new();
     private readonly Mock<IMessageRepository> _messages = new();
+    private readonly Mock<IMediaStorage> _mediaStorage = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly InboundMessageProcessor _sut;
@@ -27,6 +31,9 @@ public sealed class InboundMessageProcessorTests
     public InboundMessageProcessorTests()
     {
         _adapter.SetupGet(a => a.Kind).Returns(ChannelKind.WhatsApp);
+        _channelAccounts
+            .Setup(a => a.GetByIdAsync(ChannelAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FakeAccount);
         _messages.Setup(m => m.FindByExternalIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((Message?)null);
         _conversations
             .Setup(c => c.FindOpenByContactAndAccountAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -37,9 +44,11 @@ public sealed class InboundMessageProcessorTests
 
         _sut = new InboundMessageProcessor(
             new[] { _adapter.Object },
+            _channelAccounts.Object,
             _contacts.Object,
             _conversations.Object,
             _messages.Object,
+            _mediaStorage.Object,
             _outboxWriter.Object,
             _unitOfWork.Object,
             new FixedTimeProvider(Now));

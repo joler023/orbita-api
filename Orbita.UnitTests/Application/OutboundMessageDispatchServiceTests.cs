@@ -1,6 +1,7 @@
 using Moq;
 using Orbita.Application.Channels;
 using Orbita.Application.Inbox;
+using Orbita.Application.Media;
 using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
@@ -21,6 +22,7 @@ public sealed class OutboundMessageDispatchServiceTests
     private readonly Mock<IChannelAccountRepository> _channelAccounts = new();
     private readonly Mock<IChannelAdapter> _adapter = new();
     private readonly Mock<IOutboundMessageRateLimiter> _rateLimiter = new();
+    private readonly Mock<IMediaStorage> _mediaStorage = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly OutboundMessageDispatchService _sut;
@@ -53,6 +55,7 @@ public sealed class OutboundMessageDispatchServiceTests
             _channelAccounts.Object,
             new[] { _adapter.Object },
             _rateLimiter.Object,
+            _mediaStorage.Object,
             _outboxWriter.Object,
             _unitOfWork.Object,
             new FixedTimeProvider(Now));

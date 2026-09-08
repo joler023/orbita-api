@@ -5,6 +5,7 @@ using Orbita.Application.Channels;
 using Orbita.Application.Crm;
 using Orbita.Application.Identity;
 using Orbita.Application.Inbox;
+using Orbita.Application.Media;
 using Orbita.Application.Outbox;
 using Orbita.Application.Tenants;
 
@@ -37,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IOutboxDispatchService, OutboxDispatchService>();
         services.AddScoped<IOutboundMessageService, OutboundMessageService>();
         services.AddScoped<IOutboundMessageDispatchService, OutboundMessageDispatchService>();
+        services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IPipelineService, PipelineService>();
         services.AddScoped<IOpportunityService, OpportunityService>();
         services.AddScoped<IContactService, ContactService>();
