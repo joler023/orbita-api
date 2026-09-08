@@ -296,6 +296,38 @@ public sealed class Message
         ErrorCode = RequireLength(errorCode, ErrorCodeMaxLength, nameof(errorCode));
     }
 
+    /// <summary>Monotonic (ORB-B08): a "delivered" status update arriving after "read" (Meta can redeliver out of order) never downgrades the message.</summary>
+    public void MarkDelivered(DateTimeOffset now)
+    {
+        if (Status == MessageStatus.Read)
+        {
+            return;
+        }
+
+        Status = MessageStatus.Delivered;
+        DeliveredAt ??= now;
+    }
+
+    /// <summary>Meta sometimes reports "read" without a preceding "delivered" — this backfills DeliveredAt too so it's never null once read.</summary>
+    public void MarkRead(DateTimeOffset now)
+    {
+        Status = MessageStatus.Read;
+        DeliveredAt ??= now;
+        ReadAt ??= now;
+    }
+
+    /// <summary>Failed → Queued, so the dispatcher picks it up again on the next job. Only a Failed message can be retried.</summary>
+    public void ResetForRetry()
+    {
+        if (Status != MessageStatus.Failed)
+        {
+            throw new InvalidOperationException("Only a Failed message can be reset for retry.");
+        }
+
+        Status = MessageStatus.Queued;
+        ErrorCode = null;
+    }
+
     /// <summary>Records where the downloaded media ended up once ORB-B06's processor has fetched it from Meta and stored it.</summary>
     public void MarkMediaStored(string mediaKey, string mediaMime)
     {
