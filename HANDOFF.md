@@ -6,6 +6,8 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-08** — Arranca el Track B (Canales y Bandeja) en este repo con `ORB-B01` (conectar WhatsApp) en la rama `feature/whatsapp-channel-connect`. El plan detallado de las 19 historias del track (orden, ramas, ports/stand-ins, dependencias con Track D) quedó acordado antes de empezar; ver la sección "Track B" abajo. La máquina donde se desarrolló `ORB-B01` **no tenía Docker**, así que las 11 pruebas de integración nuevas (`ChannelsControllerTests`, `ChannelCredentialStoreTests`) compilan pero no se ejecutaron ahí — quien retome debe correr `dotnet test Orbita.slnx` con Docker antes de mergear. Las 215 unitarias sí están en verde.
+
 **2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
 
 ## Qué está implementado
@@ -28,6 +30,17 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 
 Con esto, el track de Desarrollador 1 queda sin historias P1 pendientes que no dependan de otro track. Lo que sigue (`ORB-A13`/`ORB-A14`) necesita que Track C construya los agentes de IA primero, o (P2, `ORB-A11` ya cubierto) no hay más trabajo aislado obvio — la próxima sesión debería confirmar con el resto del equipo antes de inventar alcance nuevo aquí.
 
+Track B (Canales y Bandeja — Desarrollador 2), en orden de ejecución acordado. Una rama por historia desde `develop`; la infraestructura externa (Lambda, SQS, Redis, Secrets Manager/KMS, R2, EventBridge) va detrás de ports con stand-ins locales, sin SDK de AWS todavía:
+
+- [x] `ORB-B01` Conectar WhatsApp — rama `feature/whatsapp-channel-connect`, **sin app de Meta real conectada** (ver `CLAUDE.md`, sección "Channels")
+- [ ] `ORB-B02` Ingesta de webhooks (`POST` en las mismas rutas de `/api/webhooks/whatsapp`, firma `X-Hub-Signature-256`, cola durable en Postgres como stand-in de SQS)
+- [ ] `ORB-B03` Normalización de entrantes — **bloqueada hasta que `origin/feature/d02-contactos` (Track D) esté en `develop`**: reutiliza su `Contact`, no crea uno propio
+- [ ] `ORB-B04` Transactional Outbox
+- [ ] `ORB-B05` Envío de texto · `ORB-B06` Media · `ORB-B07` Ventana de 24 h y plantillas
+- [ ] `ORB-B12` Bandeja · `ORB-B13` Vista de conversación · `ORB-B14` Tiempo real (reutiliza el `AddSignalR`/`CrmHub` de d02) · `ORB-B15` Asignación
+- [ ] P1: `ORB-B08` Estados de entrega · `ORB-B09` Instagram (**arrancar el App Review de Meta ya**, tarda semanas) · `ORB-B11` `human_agent` · `ORB-B19` DLQ · `ORB-B16` Notas · `ORB-B17` Etiquetas · `ORB-B18` Respuestas rápidas
+- [ ] P2: `ORB-B10` Comentarios y menciones de Instagram
+
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
 Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para que salten a la vista antes de tocar el área relacionada:
@@ -41,6 +54,9 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - `AuditLogEntry` es la primera entidad con id `bigint` en vez de `Guid` (así lo pide orbita-schema.dbml) — no hereda de `Entity`. Es además la única tabla verdaderamente append-only: `orbita_app` tiene `UPDATE`/`DELETE` revocados sobre ella específicamente, a nivel de base de datos.
 - El envío de correo real está pendiente en toda la plataforma (no hay proveedor conectado); se loguea el link en su lugar. Cuando se construya `Notifications`, ese es el reemplazo, no un parche aquí.
 - El secreto TOTP se cifra con la Data Protection API de ASP.NET Core (`IUserSecretProtector`), no con un KMS real — es un reemplazo temporal, igual que el envío de correo por log. Su key ring local no sirve para producción multi-instancia.
+- **Los tokens de canal (`ORB-B01`) siguen el mismo esquema**: `IChannelCredentialStore` es el port (Secrets Manager + KMS en producción, `credentials_ref` = ARN) y `DataProtectionChannelCredentialStore` el stand-in local (ciphertext en la tabla `channel_credentials`, referencia opaca `local://{guid}`). El token nunca está en claro en Postgres ni en logs — los `HttpClient` hacia Graph API se registran con `RemoveAllLoggers()` a propósito.
+- **`channel_accounts` no lleva RLS ni query filter** (misma categoría que `subscriptions`): un webhook de Meta llega solo con `(kind, external_id)` y sin tenant en sesión. El `webhook_secret` del DBML es el `hub.verify_token` por cuenta (Meta soporta un callback por WABA vía `override_callback_uri`), no la clave HMAC — esa es el app secret, configuración de plataforma. `waba_id` es una columna añadida al DBML.
+- La fila de `channel_accounts` se **confirma antes** de pedirle a Meta la suscripción del webhook, porque Meta verifica el callback de forma síncrona dentro de esa llamada y nuestro handler busca la cuenta por id. No reordenar.
 
 ## Cómo retomar el trabajo
 
@@ -57,3 +73,6 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-A11`: política de MFA de tenant sin aplicar** — el flag existe y se puede configurar, pero ningún login lo respeta todavía (misma causa raíz que el JWT sin claim de tenant).
 - **`ORB-A15`: la bitácora solo cubre cambios de rol y remoción de miembros por ahora** — es el patrón de referencia, no una cobertura exhaustiva. Engancharla a más acciones sensibles (facturación, configuración de tenant, etc.) es trabajo incremental de una línea por caso, no una historia nueva.
 - **`orbita-front` sigue en scaffold** — no hay cliente HTTP ni pantallas reales todavía, así que ningún endpoint de este repo tiene todavía un consumidor real más allá de las pruebas de integración.
+- **`ORB-B01`: sin app de Meta real** — `Channels:Meta:*` está vacío; los clientes de Graph API (`MetaAuthClient`, `WhatsAppCloudApiClient`) nunca han hablado con Meta de verdad. Crear la app en Meta for Developers (producto WhatsApp) y arrancar el App Review para Instagram cuanto antes: es un plazo externo que no controlamos.
+- **`ORB-B01`: pruebas de integración escritas pero no ejecutadas en la máquina de desarrollo** (sin Docker). Correr la suite completa con Docker antes de mergear la rama.
+- **`ORB-B03` depende de Track D**: `Contact` vive en `origin/feature/d02-contactos` (sin mergear). No arrancar B03 hasta que esté en `develop`; los nombres de columna de ese `Contact` (`phone`, `instagram_username`) no coinciden con el DBML (`phone_e164`, `ig_user_id`) y hay que acordar la canonización del teléfono (sin `+`, como el `wa_id` de Meta).
