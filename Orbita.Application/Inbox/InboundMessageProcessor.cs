@@ -1,4 +1,5 @@
 using Orbita.Application.Channels;
+using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
@@ -11,6 +12,7 @@ public sealed class InboundMessageProcessor(
     IContactRepository contacts,
     IConversationRepository conversations,
     IMessageRepository messages,
+    IOutboxWriter outboxWriter,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IInboundMessageProcessor
 {
@@ -61,6 +63,7 @@ public sealed class InboundMessageProcessor(
         }
 
         var conversation = await conversations.FindOpenByContactAndAccountAsync(contact.Id, channelAccountId, cancellationToken);
+        var isNewConversation = conversation is null;
         if (conversation is null)
         {
             conversation = Conversation.Open(tenantId, contact.Id, channelAccountId, now);
@@ -71,5 +74,20 @@ public sealed class InboundMessageProcessor(
 
         var newMessage = Message.Inbound(tenantId, conversation.Id, item.ExternalId, item.Body, item.MediaMime, item.ReplyToExternalId, now);
         await messages.AddAsync(newMessage, cancellationToken);
+
+        if (isNewConversation)
+        {
+            // No PII: ids and enums only — this event can sit unpublished for a while
+            // and is read by handlers with no tenant scoping (see CLAUDE.md, Outbox).
+            await outboxWriter.StageAsync(
+                tenantId, nameof(Conversation), conversation.Id, "conversation.opened",
+                new { conversationId = conversation.Id, contactId = contact.Id, channelAccountId },
+                cancellationToken);
+        }
+
+        await outboxWriter.StageAsync(
+            tenantId, nameof(Message), newMessage.Id, "message.received",
+            new { messageId = newMessage.Id, conversationId = conversation.Id, contactId = contact.Id, channelAccountId, direction = newMessage.Direction.ToString() },
+            cancellationToken);
     }
 }
