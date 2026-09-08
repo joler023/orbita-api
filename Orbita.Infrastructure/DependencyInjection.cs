@@ -88,6 +88,13 @@ public static class DependencyInjection
         services.AddScoped<IChannelCredentialStore, DataProtectionChannelCredentialStore>();
         services.AddSingleton<IChannelWebhookSettings, ConfigurationChannelWebhookSettings>();
 
+        // ORB-B02: webhook ingestion. MemoryCache-backed dedup is a single-instance fast
+        // path only — see MemoryCacheWebhookDeduplicator for why that's still correct.
+        services.AddMemoryCache();
+        services.AddSingleton<IWebhookSignatureVerifier, MetaWebhookSignatureVerifier>();
+        services.AddSingleton<IWebhookDeduplicator, MemoryCacheWebhookDeduplicator>();
+        services.AddScoped<IInboundWebhookQueue, PostgresInboundWebhookQueue>();
+
         // Graph API clients: typed HttpClients, same registration shape as Wompi. The
         // factory's default request/response logging is removed on purpose — it writes
         // the full request URI at Information level, and Meta's OAuth endpoints carry

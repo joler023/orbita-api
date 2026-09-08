@@ -36,6 +36,12 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     /// <summary>Infrastructure-only stand-in for Secrets Manager — see DataProtectionChannelCredentialStore.</summary>
     public DbSet<ChannelCredential> ChannelCredentials => Set<ChannelCredential>();
 
+    /// <summary>
+    /// No query filter on purpose — see ChannelAccount. Written through raw SQL (see
+    /// PostgresInboundWebhookQueue), never through this DbSet's change tracker.
+    /// </summary>
+    public DbSet<InboundWebhookEvent> InboundWebhookEvents => Set<InboundWebhookEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
