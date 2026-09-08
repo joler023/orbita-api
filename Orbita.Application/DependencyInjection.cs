@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<IWhatsAppChannelService, WhatsAppChannelService>();
         services.AddScoped<IChannelWebhookVerificationService, ChannelWebhookVerificationService>();
         services.AddScoped<IChannelTokenExpiryService, ChannelTokenExpiryService>();
+        services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();
 
         return services;
     }
