@@ -80,6 +80,45 @@ public sealed class OutboundMessageService(
         return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
     }
 
+    /// <summary>ORB-B08: only a Failed message with a transient MetaErrorCatalog error can be retried — a permanent failure (e.g. 131047, outside window) would just fail again.</summary>
+    public async Task<MessageDto> RetryAsync(Guid tenantId, Guid callerUserId, Guid messageId, CancellationToken cancellationToken)
+    {
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
+
+        var message = await messages.GetByIdAsync(messageId, cancellationToken);
+        if (message is null || message.TenantId != tenantId)
+        {
+            throw new MessageNotFoundException();
+        }
+
+        if (message.Status != MessageStatus.Failed)
+        {
+            throw new MessageNotRetryableException();
+        }
+
+        var (isTransient, _) = MetaErrorCatalog.Describe(message.ErrorCode ?? "unknown");
+        if (!isTransient)
+        {
+            throw new MessageNotRetryableException();
+        }
+
+        var (_, account) = await RequireSendableConversationAsync(tenantId, message.ConversationId, requireOpenWindow: false, cancellationToken);
+
+        message.ResetForRetry();
+        var job = OutboundMessageJob.Create(tenantId, message.Id, message.CreatedAt, account.Id, timeProvider.GetUtcNow());
+        await outboundQueue.EnqueueAsync(job, cancellationToken);
+
+        // No PII: ids and enums only (see CLAUDE.md, Outbox).
+        await outboxWriter.StageAsync(
+            tenantId, nameof(Message), message.Id, "message.queued",
+            new { messageId = message.Id, conversationId = message.ConversationId, direction = message.Direction.ToString() },
+            cancellationToken);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return MessageDto.From(message);
+    }
+
     // conversations is RLS'd/query-filtered on the ambient tenant, so a null result here
     // already means "not found or not yours" — no separate tenant check needed.
     // channel_accounts is not RLS'd (ORB-B01) — the tenant check here is the isolation.

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Orbita.Application.Channels;
 using Orbita.Application.Media;
 using Orbita.Application.Outbox;
@@ -17,7 +18,8 @@ public sealed class InboundMessageProcessor(
     IMediaStorage mediaStorage,
     IOutboxWriter outboxWriter,
     IUnitOfWork unitOfWork,
-    TimeProvider timeProvider) : IInboundMessageProcessor
+    TimeProvider timeProvider,
+    ILogger<InboundMessageProcessor> logger) : IInboundMessageProcessor
 {
     public async Task ProcessAsync(InboundWebhookEvent webhookEvent, CancellationToken cancellationToken)
     {
@@ -30,17 +32,58 @@ public sealed class InboundMessageProcessor(
 
         foreach (var item in items)
         {
-            if (item is InboundMessage message)
+            switch (item)
             {
-                await ProcessMessageAsync(webhookEvent.TenantId, account, adapter, message, cancellationToken);
+                case InboundMessage message:
+                    await ProcessMessageAsync(webhookEvent.TenantId, account, adapter, message, cancellationToken);
+                    break;
+                case InboundStatusUpdate statusUpdate:
+                    await ProcessStatusUpdateAsync(webhookEvent.TenantId, statusUpdate, cancellationToken);
+                    break;
             }
-
-            // InboundStatusUpdate is parsed starting now but only acted on from ORB-B08.
         }
 
         // One SaveChangesAsync for the whole event, not per message: a batch of several
         // messages in one webhook payload either lands together or not at all.
         await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>ORB-B08: delivery receipts for a message this tenant sent. An unknown external id is logged and skipped, never an error — Meta can report on messages this instance never enqueued.</summary>
+    private async Task ProcessStatusUpdateAsync(Guid tenantId, InboundStatusUpdate item, CancellationToken cancellationToken)
+    {
+        var message = await messages.FindByExternalIdAsync(item.ExternalId, cancellationToken);
+        if (message is null)
+        {
+            logger.LogWarning("Status update for unknown message external id {ExternalId}.", item.ExternalId);
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        string eventType;
+        switch (item.Status)
+        {
+            case MessageStatus.Delivered:
+                message.MarkDelivered(now);
+                eventType = "message.delivered";
+                break;
+            case MessageStatus.Read:
+                message.MarkRead(now);
+                eventType = "message.read";
+                break;
+            case MessageStatus.Failed:
+                message.MarkFailed(item.ErrorCode ?? "unknown");
+                eventType = "message.failed";
+                break;
+            default:
+                // Meta also echoes "sent" status updates for messages we already know
+                // are sent (MarkSent already ran in the dispatcher) — nothing to do.
+                return;
+        }
+
+        await outboxWriter.StageAsync(
+            tenantId, nameof(Message), message.Id, eventType,
+            new { messageId = message.Id, conversationId = message.ConversationId },
+            cancellationToken);
     }
 
     private async Task ProcessMessageAsync(Guid tenantId, ChannelAccount account, IChannelAdapter adapter, InboundMessage item, CancellationToken cancellationToken)
