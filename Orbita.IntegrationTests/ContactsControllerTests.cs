@@ -30,7 +30,7 @@ public sealed class ContactsControllerTests : IClassFixture<TenantsApiFixture>
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var contact = await created.Content.ReadFromJsonAsync<ContactDetail>(TestRequests.JsonOptions);
         Assert.Equal("Ana Pérez", contact!.DisplayName);
-        Assert.Equal("+573001112233", contact.Phone);
+        Assert.Equal("573001112233", contact.Phone);
 
         var fetched = await TestRequests.SendAsync(
             client,

@@ -19,10 +19,46 @@ public sealed class ContactTests
             channel: "WhatsApp");
 
         Assert.Equal("Ana Pérez", contact.DisplayName);
-        Assert.Equal("+573001234567", contact.Phone);
+        Assert.Equal("573001234567", contact.Phone);
         Assert.Equal("ana.shop", contact.InstagramUsername);
         Assert.Equal("ana@shop.com", contact.Email);
         Assert.Equal("whatsapp", contact.Channel);
+    }
+
+    [Fact]
+    public void NormalizePhone_StripsPlus()
+        => Assert.Equal("573001234567", Contact.NormalizePhone("+57 300 123 4567"));
+
+    [Fact]
+    public void CreateFromChannel_WhatsApp_SetsPhoneDigitsOnlyAndRecordsSeen()
+    {
+        var contact = Contact.CreateFromChannel(Guid.NewGuid(), "whatsapp", "573001234567", "Ana", Now);
+
+        Assert.Equal("573001234567", contact.Phone);
+        Assert.Null(contact.InstagramUserId);
+        Assert.Equal("whatsapp", contact.Channel);
+        Assert.Equal(Now, contact.LastSeenAt);
+    }
+
+    [Fact]
+    public void CreateFromChannel_Instagram_SetsInstagramUserIdNotPhone()
+    {
+        var contact = Contact.CreateFromChannel(Guid.NewGuid(), "instagram", "17841400000000000", null, Now);
+
+        Assert.Equal("17841400000000000", contact.InstagramUserId);
+        Assert.Null(contact.Phone);
+        Assert.Equal("instagram", contact.Channel);
+        Assert.Equal("17841400000000000", contact.DisplayName);
+    }
+
+    [Fact]
+    public void RecordSeen_UpdatesLastSeenAt()
+    {
+        var contact = Contact.Create(Guid.NewGuid(), "Ana", Now);
+
+        contact.RecordSeen(Now.AddMinutes(5));
+
+        Assert.Equal(Now.AddMinutes(5), contact.LastSeenAt);
     }
 
     [Fact]

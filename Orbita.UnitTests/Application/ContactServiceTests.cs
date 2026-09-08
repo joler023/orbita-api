@@ -68,7 +68,7 @@ public sealed class ContactServiceTests
     public async Task CreateAsync_PersistsWhenPhoneIsNew()
     {
         _contacts
-            .Setup(r => r.FindDuplicateAsync(_tenantId, "+573001112233", null, null, It.IsAny<CancellationToken>()))
+            .Setup(r => r.FindDuplicateAsync(_tenantId, "573001112233", null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Contact?)null);
 
         var created = await _sut.CreateAsync(
@@ -78,7 +78,7 @@ public sealed class ContactServiceTests
             CancellationToken.None);
 
         Assert.Equal("Ana Pérez", created.DisplayName);
-        Assert.Equal("+573001112233", created.Phone);
+        Assert.Equal("573001112233", created.Phone);
         _contacts.Verify(r => r.AddAsync(It.IsAny<Contact>(), It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -88,7 +88,7 @@ public sealed class ContactServiceTests
     {
         var existing = Contact.Create(_tenantId, "Otra", Now, phone: "+573001112233");
         _contacts
-            .Setup(r => r.FindDuplicateAsync(_tenantId, "+573001112233", null, null, It.IsAny<CancellationToken>()))
+            .Setup(r => r.FindDuplicateAsync(_tenantId, "573001112233", null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existing);
 
         await Assert.ThrowsAsync<ContactAlreadyExistsException>(() =>

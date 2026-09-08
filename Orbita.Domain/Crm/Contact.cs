@@ -14,6 +14,7 @@ public sealed class Contact : Entity
     public const int InstagramMaxLength = 64;
     public const int EmailMaxLength = 254;
     public const int ChannelMaxLength = 32;
+    public const int InstagramUserIdMaxLength = 120;
 
     private Contact(
         Guid id,
@@ -25,7 +26,9 @@ public sealed class Contact : Entity
         string channel,
         Dictionary<string, string> customFields,
         DateTimeOffset createdAt,
-        DateTimeOffset updatedAt)
+        DateTimeOffset updatedAt,
+        string? instagramUserId = null,
+        DateTimeOffset? lastSeenAt = null)
         : base(id)
     {
         TenantId = tenantId;
@@ -37,6 +40,8 @@ public sealed class Contact : Entity
         CustomFields = customFields;
         CreatedAt = createdAt;
         UpdatedAt = updatedAt;
+        InstagramUserId = instagramUserId;
+        LastSeenAt = lastSeenAt;
     }
 
     public Guid TenantId { get; }
@@ -47,6 +52,9 @@ public sealed class Contact : Entity
 
     public string? InstagramUsername { get; private set; }
 
+    /// <summary>Instagram's own business-scoped user id (ORB-B03) — distinct from <see cref="InstagramUsername"/>, which can change.</summary>
+    public string? InstagramUserId { get; private set; }
+
     public string? Email { get; private set; }
 
     public string Channel { get; private set; }
@@ -56,6 +64,9 @@ public sealed class Contact : Entity
     public DateTimeOffset CreatedAt { get; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    /// <summary>Last time an inbound message from this contact was processed (ORB-B03).</summary>
+    public DateTimeOffset? LastSeenAt { get; private set; }
 
     public static Contact Create(
         Guid tenantId,
@@ -83,6 +94,49 @@ public sealed class Contact : Entity
             now,
             now);
     }
+
+    /// <summary>
+    /// A contact created from an inbound channel message (ORB-B03), not from the
+    /// dashboard — <paramref name="externalUserId"/> is the channel's own identifier
+    /// (WhatsApp's wa_id, already digits-only; Instagram's IG-scoped user id), and
+    /// becomes <see cref="Phone"/> or <see cref="InstagramUserId"/> respectively.
+    /// </summary>
+    public static Contact CreateFromChannel(
+        Guid tenantId,
+        string channel,
+        string externalUserId,
+        string? displayName,
+        DateTimeOffset now)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id is required.", nameof(tenantId));
+        }
+
+        if (string.IsNullOrWhiteSpace(externalUserId))
+        {
+            throw new ArgumentException("External user id is required.", nameof(externalUserId));
+        }
+
+        var normalizedChannel = NormalizeChannel(channel);
+        var name = string.IsNullOrWhiteSpace(displayName) ? externalUserId : displayName;
+
+        return normalizedChannel switch
+        {
+            "whatsapp" => new Contact(
+                Guid.NewGuid(), tenantId, RequireName(name), NormalizePhone(externalUserId), null, null,
+                normalizedChannel, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), now, now,
+                lastSeenAt: now),
+            "instagram" => new Contact(
+                Guid.NewGuid(), tenantId, RequireName(name), null, null, null,
+                normalizedChannel, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), now, now,
+                instagramUserId: NormalizeInstagramUserId(externalUserId), lastSeenAt: now),
+            _ => throw new ArgumentException("Channel must be whatsapp or instagram.", nameof(channel)),
+        };
+    }
+
+    /// <summary>Bumps <see cref="LastSeenAt"/> on every inbound message (ORB-B03) — never touched by dashboard edits.</summary>
+    public void RecordSeen(DateTimeOffset now) => LastSeenAt = now;
 
     public void UpdateIdentity(
         string displayName,
@@ -136,7 +190,9 @@ public sealed class Contact : Entity
             return null;
         }
 
-        var digits = Regex.Replace(phone, @"[^\d+]", string.Empty);
+        // Digits only, no leading '+' (ORB-B03): Meta's wa_id arrives without one, and
+        // keeping it here would duplicate every WhatsApp contact on first inbound message.
+        var digits = Regex.Replace(phone, @"[^\d]", string.Empty);
         return digits.Length == 0 ? null : digits[..Math.Min(digits.Length, PhoneMaxLength)];
     }
 
@@ -149,6 +205,12 @@ public sealed class Contact : Entity
 
         var trimmed = username.Trim().TrimStart('@').ToLowerInvariant();
         return trimmed.Length == 0 ? null : trimmed[..Math.Min(trimmed.Length, InstagramMaxLength)];
+    }
+
+    private static string NormalizeInstagramUserId(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed[..Math.Min(trimmed.Length, InstagramUserIdMaxLength)];
     }
 
     private static string RequireName(string name)

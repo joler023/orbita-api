@@ -27,7 +27,11 @@ public sealed class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.InstagramUsername)
             .HasColumnName("instagram_username")
             .HasMaxLength(Contact.InstagramMaxLength);
+        builder.Property(c => c.InstagramUserId)
+            .HasColumnName("ig_user_id")
+            .HasMaxLength(Contact.InstagramUserIdMaxLength);
         builder.Property(c => c.Email).HasColumnName("email").HasMaxLength(Contact.EmailMaxLength);
+        builder.Property(c => c.LastSeenAt).HasColumnName("last_seen_at");
         builder.Property(c => c.Channel)
             .HasColumnName("channel")
             .HasMaxLength(Contact.ChannelMaxLength)
@@ -55,6 +59,10 @@ public sealed class ContactConfiguration : IEntityTypeConfiguration<Contact>
             .IsUnique()
             .HasFilter("instagram_username IS NOT NULL")
             .HasDatabaseName("ix_contacts_tenant_instagram");
+        builder.HasIndex(c => new { c.TenantId, c.InstagramUserId })
+            .IsUnique()
+            .HasFilter("ig_user_id IS NOT NULL")
+            .HasDatabaseName("ix_contacts_tenant_ig_user_id");
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Cascade);
     }

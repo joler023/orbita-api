@@ -63,6 +63,12 @@ public sealed class ContactRepository(OrbitaDbContext dbContext) : IContactRepos
     public Task<int> CountByTenantAsync(Guid tenantId, CancellationToken cancellationToken)
         => dbContext.Contacts.CountAsync(contact => contact.TenantId == tenantId, cancellationToken);
 
+    public Task<Contact?> FindByPhoneAsync(Guid tenantId, string phone, CancellationToken cancellationToken)
+        => dbContext.Contacts.SingleOrDefaultAsync(c => c.TenantId == tenantId && c.Phone == phone, cancellationToken);
+
+    public Task<Contact?> FindByInstagramUserIdAsync(Guid tenantId, string instagramUserId, CancellationToken cancellationToken)
+        => dbContext.Contacts.SingleOrDefaultAsync(c => c.TenantId == tenantId && c.InstagramUserId == instagramUserId, cancellationToken);
+
     public async Task AddAsync(Contact contact, CancellationToken cancellationToken)
         => await dbContext.Contacts.AddAsync(contact, cancellationToken);
 }
