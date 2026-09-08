@@ -6,6 +6,7 @@ using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Inbox;
+using Orbita.Domain.Outbox;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Channels;
 
@@ -57,6 +58,9 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     public DbSet<Conversation> Conversations => Set<Conversation>();
 
     public DbSet<Message> Messages => Set<Message>();
+
+    /// <summary>No query filter — the dispatcher reads across every tenant's pending events. See OutboxEventConfiguration.</summary>
+    public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
