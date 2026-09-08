@@ -40,9 +40,47 @@ public sealed class FakeWhatsAppCloudApiClient : IWhatsAppCloudApiClient
         return Task.FromResult(wamid);
     }
 
+    public Task<string> UploadMediaAsync(string accessToken, string phoneNumberId, Stream content, string mime, string fileName, CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream();
+        content.CopyTo(buffer);
+        var mediaId = $"media-fake-{Guid.NewGuid():N}";
+        _uploadedMedia[mediaId] = (buffer.ToArray(), mime);
+        return Task.FromResult(mediaId);
+    }
+
+    public Task<string> SendMediaAsync(string accessToken, string phoneNumberId, string toWaId, string mediaTypeCategory, string mediaId, string? caption, CancellationToken cancellationToken)
+    {
+        var errorCode = NextSendErrorCode?.Invoke(caption ?? string.Empty);
+        if (errorCode is not null)
+        {
+            NextSendErrorCode = null;
+            throw new MetaApiException($"Simulated Meta error {errorCode}.", errorCode);
+        }
+
+        var wamid = $"wamid.fake-{Guid.NewGuid():N}";
+        _sentMessages.Enqueue(new SentMessage(phoneNumberId, toWaId, caption ?? string.Empty, wamid));
+        return Task.FromResult(wamid);
+    }
+
+    public Task<string> GetMediaUrlAsync(string accessToken, string mediaId, CancellationToken cancellationToken)
+        => Task.FromResult($"https://fake-meta-cdn.test/{mediaId}");
+
+    public Task<(Stream Content, string Mime)> DownloadMediaAsync(string accessToken, string mediaUrl, CancellationToken cancellationToken)
+    {
+        var mediaId = mediaUrl[(mediaUrl.LastIndexOf('/') + 1)..];
+        var (bytes, mime) = _uploadedMedia.TryGetValue(mediaId, out var stored)
+            ? stored
+            : (FakeInboundMediaBytes, "image/jpeg");
+        return Task.FromResult<(Stream, string)>((new MemoryStream(bytes), mime));
+    }
+
     public WebhookSubscription LatestSubscriptionFor(string wabaId) => _subscriptions.Last(s => s.WabaId == wabaId);
 
     public IReadOnlyCollection<SentMessage> SentMessages => _sentMessages;
+
+    private static readonly byte[] FakeInboundMediaBytes = "fake-image-bytes"u8.ToArray();
+    private readonly ConcurrentDictionary<string, (byte[] Bytes, string Mime)> _uploadedMedia = new();
 
     public sealed record WebhookSubscription(string AccessToken, string WabaId, string? CallbackUrl, string? VerifyToken);
 

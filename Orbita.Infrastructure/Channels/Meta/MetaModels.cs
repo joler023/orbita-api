@@ -37,3 +37,11 @@ internal sealed record MetaSuccessResponse([property: JsonPropertyName("success"
 internal sealed record WhatsAppSendMessageResponse([property: JsonPropertyName("messages")] IReadOnlyList<WhatsAppSentMessageId> Messages);
 
 internal sealed record WhatsAppSentMessageId([property: JsonPropertyName("id")] string Id);
+
+/// <summary>POST /{phone_number_id}/media.</summary>
+internal sealed record WhatsAppUploadMediaResponse([property: JsonPropertyName("id")] string Id);
+
+/// <summary>GET /{media_id}.</summary>
+internal sealed record WhatsAppMediaUrlResponse(
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("mime_type")] string MimeType);
