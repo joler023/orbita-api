@@ -13,6 +13,7 @@ public sealed class OutboundMessageService(
     IConversationRepository conversations,
     IChannelAccountRepository channelAccounts,
     IMessageRepository messages,
+    IMessageTemplateRepository messageTemplates,
     IOutboundMessageQueue outboundQueue,
     IOutboxWriter outboxWriter,
     IMediaUrlSigner mediaUrlSigner,
@@ -20,11 +21,13 @@ public sealed class OutboundMessageService(
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IOutboundMessageService
 {
+    private static readonly TimeSpan MediaLinkLifetime = TimeSpan.FromMinutes(15);
+
     public async Task<MessageDto> SendTextAsync(Guid tenantId, Guid callerUserId, Guid conversationId, SendTextRequest request, CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
 
-        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, cancellationToken);
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
 
         var now = timeProvider.GetUtcNow();
         var message = Message.OutboundText(tenantId, conversationId, request.Text, callerUserId, MessageCategory.Service, now);
@@ -42,7 +45,7 @@ public sealed class OutboundMessageService(
             throw new MediaKeyNotFoundException();
         }
 
-        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, cancellationToken);
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
 
         var now = timeProvider.GetUtcNow();
         var message = Message.OutboundMedia(tenantId, conversationId, request.MediaKey, request.MediaMime, request.Caption, callerUserId, now);
@@ -51,11 +54,37 @@ public sealed class OutboundMessageService(
         return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
     }
 
+    public async Task<MessageDto> SendTemplateAsync(Guid tenantId, Guid callerUserId, Guid conversationId, SendTemplateRequest request, CancellationToken cancellationToken)
+    {
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
+
+        // Templates exist specifically to write outside the window — no window check here.
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: false, cancellationToken);
+
+        var template = await messageTemplates.GetByIdAsync(request.TemplateId, cancellationToken);
+        if (template is null || template.TenantId != tenantId)
+        {
+            throw new TemplateNotFoundException();
+        }
+
+        if (!template.IsApproved)
+        {
+            throw new TemplateNotApprovedException();
+        }
+
+        var renderedBody = template.Render(request.Variables);
+        var now = timeProvider.GetUtcNow();
+        var message = Message.OutboundTemplate(tenantId, conversationId, template.Id, renderedBody, request.Variables, template.Category, callerUserId, now);
+        conversation.RegisterOutbound(now, renderedBody, isHuman: true);
+
+        return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
+    }
+
     // conversations is RLS'd/query-filtered on the ambient tenant, so a null result here
     // already means "not found or not yours" — no separate tenant check needed.
     // channel_accounts is not RLS'd (ORB-B01) — the tenant check here is the isolation.
     private async Task<(Conversation Conversation, ChannelAccount Account)> RequireSendableConversationAsync(
-        Guid tenantId, Guid conversationId, CancellationToken cancellationToken)
+        Guid tenantId, Guid conversationId, bool requireOpenWindow, CancellationToken cancellationToken)
     {
         var conversation = await conversations.GetByIdAsync(conversationId, cancellationToken)
             ?? throw new ConversationNotFoundException();
@@ -64,6 +93,11 @@ public sealed class OutboundMessageService(
         if (account is null || account.TenantId != tenantId || account.Status != ChannelStatus.Connected)
         {
             throw new ChannelNotConnectedException();
+        }
+
+        if (requireOpenWindow && !conversation.CanSendFreeForm(timeProvider.GetUtcNow()))
+        {
+            throw new ServiceWindowClosedException();
         }
 
         return (conversation, account);
@@ -89,6 +123,4 @@ public sealed class OutboundMessageService(
             : $"/api/media/{mediaUrlSigner.CreateToken("get", message.MediaKey, timeProvider.GetUtcNow() + MediaLinkLifetime)}";
         return MessageDto.From(message, mediaUrl);
     }
-
-    private static readonly TimeSpan MediaLinkLifetime = TimeSpan.FromMinutes(15);
 }

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Orbita.Domain.Inbox;
 
 /// <summary>
@@ -28,6 +30,7 @@ public sealed class Message
         string? externalId,
         string? replyToExternalId,
         Guid? templateId,
+        string? templateVariablesJson,
         Guid? sentByUserId,
         Guid? aiRunId,
         MessageStatus status,
@@ -47,6 +50,7 @@ public sealed class Message
         ExternalId = externalId;
         ReplyToExternalId = replyToExternalId;
         TemplateId = templateId;
+        TemplateVariablesJson = templateVariablesJson;
         SentByUserId = sentByUserId;
         AiRunId = aiRunId;
         Status = status;
@@ -81,6 +85,9 @@ public sealed class Message
 
     /// <summary>Set when sent outside the service window with an approved template (ORB-B07).</summary>
     public Guid? TemplateId { get; }
+
+    /// <summary>The exact variables this send used, serialized as a JSON string array — the dispatcher needs the raw values, not just the already-rendered <see cref="Body"/>, to call Meta's template send API.</summary>
+    public string? TemplateVariablesJson { get; }
 
     /// <summary>Null if sent by an AI agent instead of a human.</summary>
     public Guid? SentByUserId { get; }
@@ -135,6 +142,7 @@ public sealed class Message
             RequireLength(externalId, ExternalIdMaxLength, nameof(externalId)),
             RequireLength(replyToExternalId, ExternalIdMaxLength, nameof(replyToExternalId)),
             templateId: null,
+            templateVariablesJson: null,
             sentByUserId: null,
             aiRunId: null,
             MessageStatus.Delivered,
@@ -179,6 +187,7 @@ public sealed class Message
             externalId: null,
             replyToExternalId: null,
             templateId: null,
+            templateVariablesJson: null,
             sentByUserId,
             aiRunId: null,
             MessageStatus.Queued,
@@ -198,6 +207,7 @@ public sealed class Message
         Guid conversationId,
         Guid templateId,
         string renderedBody,
+        IReadOnlyList<string> variables,
         MessageCategory category,
         Guid? sentByUserId,
         DateTimeOffset now)
@@ -219,6 +229,7 @@ public sealed class Message
             externalId: null,
             replyToExternalId: null,
             templateId,
+            JsonSerializer.Serialize(variables),
             sentByUserId,
             aiRunId: null,
             MessageStatus.Queued,
@@ -260,6 +271,7 @@ public sealed class Message
             externalId: null,
             replyToExternalId: null,
             templateId: null,
+            templateVariablesJson: null,
             sentByUserId,
             aiRunId: null,
             MessageStatus.Queued,

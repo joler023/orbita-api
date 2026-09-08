@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IOutboundMessageService, OutboundMessageService>();
         services.AddScoped<IOutboundMessageDispatchService, OutboundMessageDispatchService>();
         services.AddScoped<IMediaService, MediaService>();
+        services.AddScoped<IMessageTemplateService, MessageTemplateService>();
         services.AddScoped<IPipelineService, PipelineService>();
         services.AddScoped<IOpportunityService, OpportunityService>();
         services.AddScoped<IContactService, ContactService>();

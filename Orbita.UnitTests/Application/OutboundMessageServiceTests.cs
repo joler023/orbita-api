@@ -21,6 +21,7 @@ public sealed class OutboundMessageServiceTests
     private readonly Mock<IConversationRepository> _conversations = new();
     private readonly Mock<IChannelAccountRepository> _channelAccounts = new();
     private readonly Mock<IMessageRepository> _messages = new();
+    private readonly Mock<IMessageTemplateRepository> _messageTemplates = new();
     private readonly Mock<IOutboundMessageQueue> _outboundQueue = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
     private readonly Mock<IMediaUrlSigner> _mediaUrlSigner = new();
@@ -34,6 +35,7 @@ public sealed class OutboundMessageServiceTests
             _conversations.Object,
             _channelAccounts.Object,
             _messages.Object,
+            _messageTemplates.Object,
             _outboundQueue.Object,
             _outboxWriter.Object,
             _mediaUrlSigner.Object,

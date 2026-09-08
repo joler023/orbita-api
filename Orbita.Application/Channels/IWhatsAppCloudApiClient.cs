@@ -40,8 +40,19 @@ public interface IWhatsAppCloudApiClient
 
     /// <exception cref="MetaApiException"/>
     Task<(Stream Content, string Mime)> DownloadMediaAsync(string accessToken, string mediaUrl, CancellationToken cancellationToken);
+
+    /// <summary>ORB-B07: lists every template registered for the WABA, with its current Meta review status.</summary>
+    /// <exception cref="MetaApiException"/>
+    Task<IReadOnlyList<WhatsAppTemplateInfo>> ListTemplatesAsync(string accessToken, string wabaId, CancellationToken cancellationToken);
+
+    /// <returns>The wamid Meta assigned to the sent message.</returns>
+    /// <exception cref="MetaApiException"/>
+    Task<string> SendTemplateAsync(string accessToken, string phoneNumberId, string toWaId, string templateName, string language, IReadOnlyList<string> variables, CancellationToken cancellationToken);
 }
 
 /// <param name="DisplayPhoneNumber">As Meta formats it, e.g. "+57 300 1112233".</param>
 /// <param name="VerifiedName">The business name Meta verified for this number.</param>
 public sealed record WhatsAppPhoneNumberInfo(string DisplayPhoneNumber, string VerifiedName);
+
+/// <param name="Status">Meta's raw status string (e.g. "APPROVED") — see MetaTemplateStatusMapper.</param>
+public sealed record WhatsAppTemplateInfo(string Name, string Language, string Status, string? RejectedReason);

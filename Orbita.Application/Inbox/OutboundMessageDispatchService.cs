@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Orbita.Application.Channels;
 using Orbita.Application.Crm;
 using Orbita.Application.Media;
@@ -15,6 +16,7 @@ public sealed class OutboundMessageDispatchService(
     IConversationRepository conversations,
     IContactRepository contacts,
     IChannelAccountRepository channelAccounts,
+    IMessageTemplateRepository messageTemplates,
     IEnumerable<IChannelAdapter> adapters,
     IOutboundMessageRateLimiter rateLimiter,
     IMediaStorage mediaStorage,
@@ -47,9 +49,11 @@ public sealed class OutboundMessageDispatchService(
                 throw new ChannelSendException("no_recipient_id", isTransient: false, "The contact has no identifier for this channel.");
             }
 
-            var externalId = message.MediaKey is null
-                ? await adapter.SendTextAsync(account, toExternalId, message.Body ?? string.Empty, cancellationToken)
-                : await SendMediaAsync(account, adapter, toExternalId, message, cancellationToken);
+            var externalId = message.TemplateId is { } templateId
+                ? await SendTemplateAsync(account, adapter, toExternalId, message, templateId, cancellationToken)
+                : message.MediaKey is null
+                    ? await adapter.SendTextAsync(account, toExternalId, message.Body ?? string.Empty, cancellationToken)
+                    : await SendMediaAsync(account, adapter, toExternalId, message, cancellationToken);
 
             message.MarkSent(externalId, now);
             job.MarkSent();
@@ -92,6 +96,15 @@ public sealed class OutboundMessageDispatchService(
         {
             return await adapter.SendMediaAsync(account, toExternalId, content, message.MediaMime ?? "application/octet-stream", message.Body, cancellationToken);
         }
+    }
+
+    private async Task<string> SendTemplateAsync(ChannelAccount account, IChannelAdapter adapter, string toExternalId, Message message, Guid templateId, CancellationToken cancellationToken)
+    {
+        var template = await messageTemplates.GetByIdAsync(templateId, cancellationToken)
+            ?? throw new TemplateNotFoundException();
+        var variables = JsonSerializer.Deserialize<List<string>>(message.TemplateVariablesJson ?? "[]") ?? [];
+
+        return await adapter.SendTemplateAsync(account, toExternalId, template.MetaTemplateName, template.Language, variables, cancellationToken);
     }
 
     private static TimeSpan Backoff(short attempts) => TimeSpan.FromSeconds(30 * Math.Pow(2, attempts));

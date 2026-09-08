@@ -20,6 +20,7 @@ public sealed class OutboundMessageDispatchServiceTests
     private readonly Mock<IConversationRepository> _conversations = new();
     private readonly Mock<IContactRepository> _contacts = new();
     private readonly Mock<IChannelAccountRepository> _channelAccounts = new();
+    private readonly Mock<IMessageTemplateRepository> _messageTemplates = new();
     private readonly Mock<IChannelAdapter> _adapter = new();
     private readonly Mock<IOutboundMessageRateLimiter> _rateLimiter = new();
     private readonly Mock<IMediaStorage> _mediaStorage = new();
@@ -53,6 +54,7 @@ public sealed class OutboundMessageDispatchServiceTests
             _conversations.Object,
             _contacts.Object,
             _channelAccounts.Object,
+            _messageTemplates.Object,
             new[] { _adapter.Object },
             _rateLimiter.Object,
             _mediaStorage.Object,
