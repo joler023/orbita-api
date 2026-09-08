@@ -5,6 +5,7 @@ using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
+using Orbita.Domain.Inbox;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Channels;
 
@@ -53,6 +54,10 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<ContactFieldDefinition> ContactFieldDefinitions => Set<ContactFieldDefinition>();
 
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+
+    public DbSet<Message> Messages => Set<Message>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -85,5 +90,11 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<ContactFieldDefinition>()
             .HasQueryFilter(f => tenantContext.TenantId == null || f.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Conversation>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Message>()
+            .HasQueryFilter(m => tenantContext.TenantId == null || m.TenantId == tenantContext.TenantId);
     }
 }
