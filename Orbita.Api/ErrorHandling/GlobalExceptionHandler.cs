@@ -67,6 +67,7 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             TemplateNotApprovedException => (StatusCodes.Status409Conflict, "Template not approved"),
             TemplateNotFoundException => (StatusCodes.Status404NotFound, "Template not found"),
             TemplateAlreadyExistsException => (StatusCodes.Status409Conflict, "Template already exists"),
+            MessageNotRetryableException => (StatusCodes.Status409Conflict, "Message cannot be retried"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

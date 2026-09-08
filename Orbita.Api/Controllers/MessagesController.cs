@@ -76,4 +76,14 @@ public sealed class MessagesController(IOutboundMessageService outboundMessageSe
         var message = await outboundMessageService.SendTemplateAsync(tenantId, User.GetUserId(), conversationId, request, cancellationToken);
         return Accepted(message);
     }
+
+    [HttpPost("api/tenants/{tenantId:guid}/messages/{messageId:guid}/retry")]
+    [ProducesResponseType(typeof(MessageDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<MessageDto>> Retry(Guid tenantId, Guid messageId, CancellationToken cancellationToken)
+    {
+        var message = await outboundMessageService.RetryAsync(tenantId, User.GetUserId(), messageId, cancellationToken);
+        return Accepted(message);
+    }
 }
