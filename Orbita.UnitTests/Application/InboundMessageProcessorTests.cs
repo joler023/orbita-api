@@ -166,6 +166,41 @@ public sealed class InboundMessageProcessorTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithMediaExternalId_DownloadsAndStoresMedia()
+    {
+        var content = new MemoryStream("bytes"u8.ToArray());
+        _adapter
+            .Setup(a => a.DownloadMediaAsync(FakeAccount, "media-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((content, "image/jpeg"));
+        SetupItems(new InboundMessage("phone-1", "wamid.1", "573001234567", "Ana", ChannelKind.WhatsApp, null, "media-1", "image/jpeg", null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        _mediaStorage.Verify(s => s.SaveAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()), Times.Once);
+        _messages.Verify(
+            m => m.AddAsync(It.Is<Message>(x => x.MediaKey != null && x.MediaMime == "image/jpeg"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenMediaDownloadFails_KeepsTheMessageAndStagesMediaFailed()
+    {
+        _adapter
+            .Setup(a => a.DownloadMediaAsync(FakeAccount, "media-1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ChannelSendException("media_error", isTransient: false, "download failed"));
+        SetupItems(new InboundMessage("phone-1", "wamid.1", "573001234567", "Ana", ChannelKind.WhatsApp, null, "media-1", "image/jpeg", null, Now));
+
+        var exception = await Record.ExceptionAsync(() => _sut.ProcessAsync(CreateEvent(), CancellationToken.None));
+
+        Assert.Null(exception);
+        _messages.Verify(m => m.AddAsync(It.Is<Message>(x => x.MediaKey == null), It.IsAny<CancellationToken>()), Times.Once);
+        _mediaStorage.Verify(s => s.SaveAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()), Times.Never);
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Message), It.IsAny<Guid>(), "message.media_failed", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private void SetupItems(params InboundItem[] items)
         => _adapter.Setup(a => a.ParseInbound(It.IsAny<string>())).Returns(items);
 
