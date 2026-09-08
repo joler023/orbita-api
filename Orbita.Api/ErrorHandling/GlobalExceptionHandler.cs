@@ -5,6 +5,7 @@ using Orbita.Application.Channels;
 using Orbita.Application.Crm;
 using Orbita.Application.Identity;
 using Orbita.Application.Inbox;
+using Orbita.Application.Media;
 using Orbita.Application.Tenants;
 
 namespace Orbita.Api.ErrorHandling;
@@ -58,6 +59,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             ConversationNotFoundException => (StatusCodes.Status404NotFound, "Conversation not found"),
             ChannelNotConnectedException => (StatusCodes.Status409Conflict, "Channel not connected"),
             MessageNotFoundException => (StatusCodes.Status404NotFound, "Message not found"),
+            InvalidMediaSignatureException => (StatusCodes.Status403Forbidden, "Invalid media link"),
+            MediaTooLargeException => (StatusCodes.Status413PayloadTooLarge, "Media too large"),
+            UnsupportedMediaTypeException => (StatusCodes.Status415UnsupportedMediaType, "Unsupported media type"),
+            MediaKeyNotFoundException => (StatusCodes.Status404NotFound, "Media not found"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
