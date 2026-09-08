@@ -62,4 +62,18 @@ public sealed class MessagesController(IOutboundMessageService outboundMessageSe
     {
         return Ok(await mediaService.GetMessageMediaUrlAsync(tenantId, User.GetUserId(), messageId, cancellationToken));
     }
+
+    [HttpPost("api/tenants/{tenantId:guid}/conversations/{conversationId:guid}/messages/template")]
+    [ProducesResponseType(typeof(MessageDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<MessageDto>> SendTemplate(
+        Guid tenantId,
+        Guid conversationId,
+        [FromBody] SendTemplateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var message = await outboundMessageService.SendTemplateAsync(tenantId, User.GetUserId(), conversationId, request, cancellationToken);
+        return Accepted(message);
+    }
 }

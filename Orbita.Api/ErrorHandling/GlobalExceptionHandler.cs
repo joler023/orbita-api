@@ -63,6 +63,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             MediaTooLargeException => (StatusCodes.Status413PayloadTooLarge, "Media too large"),
             UnsupportedMediaTypeException => (StatusCodes.Status415UnsupportedMediaType, "Unsupported media type"),
             MediaKeyNotFoundException => (StatusCodes.Status404NotFound, "Media not found"),
+            ServiceWindowClosedException => (StatusCodes.Status409Conflict, "Service window closed"),
+            TemplateNotApprovedException => (StatusCodes.Status409Conflict, "Template not approved"),
+            TemplateNotFoundException => (StatusCodes.Status404NotFound, "Template not found"),
+            TemplateAlreadyExistsException => (StatusCodes.Status409Conflict, "Template already exists"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
