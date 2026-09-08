@@ -52,6 +52,10 @@ public sealed class RolePermissionsTests
     [InlineData(MemberRole.Agent, Permission.ManageContacts, true)]
     [InlineData(MemberRole.Viewer, Permission.ViewContacts, true)]
     [InlineData(MemberRole.Viewer, Permission.ManageContacts, false)]
+    [InlineData(MemberRole.Owner, Permission.SendMessages, true)]
+    [InlineData(MemberRole.Admin, Permission.SendMessages, true)]
+    [InlineData(MemberRole.Agent, Permission.SendMessages, true)]
+    [InlineData(MemberRole.Viewer, Permission.SendMessages, false)]
     public void Grants_MatchesTheDocumentedPermissionMatrix(MemberRole role, Permission permission, bool expected)
     {
         Assert.Equal(expected, RolePermissions.Grants(role, permission));
