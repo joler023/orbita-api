@@ -32,3 +32,8 @@ internal sealed record WhatsAppPhoneNumberResponse(
 
 /// <summary>POST /{waba_id}/subscribed_apps.</summary>
 internal sealed record MetaSuccessResponse([property: JsonPropertyName("success")] bool Success);
+
+/// <summary>POST /{phone_number_id}/messages.</summary>
+internal sealed record WhatsAppSendMessageResponse([property: JsonPropertyName("messages")] IReadOnlyList<WhatsAppSentMessageId> Messages);
+
+internal sealed record WhatsAppSentMessageId([property: JsonPropertyName("id")] string Id);

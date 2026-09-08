@@ -8,6 +8,7 @@ using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
+using Orbita.Application.Inbox;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
@@ -72,6 +73,9 @@ public static class DependencyInjection
         services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<IIntegrationEventPublisher, InProcessIntegrationEventPublisher>();
         services.AddHostedService<OutboxDispatcherWorker>();
+        services.AddScoped<IOutboundMessageQueue, PostgresOutboundMessageQueue>();
+        services.AddSingleton<IOutboundMessageRateLimiter, TokenBucketRateLimiter>();
+        services.AddHostedService<OutboundMessageWorker>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
@@ -110,8 +114,11 @@ public static class DependencyInjection
         services.AddSingleton<IWebhookDeduplicator, MemoryCacheWebhookDeduplicator>();
         services.AddScoped<IInboundWebhookQueue, PostgresInboundWebhookQueue>();
 
-        // ORB-B03: inbound message normalization.
-        services.AddSingleton<IChannelAdapter, WhatsAppChannelAdapter>();
+        // ORB-B03: inbound message normalization. Scoped, not Singleton — ORB-B05's
+        // SendTextAsync pulled in IChannelCredentialStore/IWhatsAppCloudApiClient,
+        // both Scoped, and a Singleton can't depend on those without becoming a
+        // captive dependency.
+        services.AddScoped<IChannelAdapter, WhatsAppChannelAdapter>();
         services.AddHostedService<InboundMessageWorker>();
 
         // Graph API clients: typed HttpClients, same registration shape as Wompi. The

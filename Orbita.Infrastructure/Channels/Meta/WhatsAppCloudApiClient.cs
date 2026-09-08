@@ -45,6 +45,24 @@ public sealed class WhatsAppCloudApiClient : IWhatsAppCloudApiClient
         }
     }
 
+    public async Task<string> SendTextAsync(string accessToken, string phoneNumberId, string toWaId, string body, CancellationToken cancellationToken)
+    {
+        using var request = Authorized(HttpMethod.Post, $"{Uri.EscapeDataString(phoneNumberId)}/messages", accessToken);
+        request.Content = JsonContent.Create(new
+        {
+            messaging_product = "whatsapp",
+            to = toWaId,
+            type = "text",
+            text = new { body },
+        });
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var result = await MetaGraphResponseReader.ReadAsync<WhatsAppSendMessageResponse>(response, cancellationToken);
+        return result.Messages is [{ Id: { Length: > 0 } id }, ..]
+            ? id
+            : throw new MetaApiException("Meta accepted the send but returned no message id.");
+    }
+
     private static HttpRequestMessage Authorized(HttpMethod method, string relativeUrl, string accessToken)
         => new(method, relativeUrl)
         {

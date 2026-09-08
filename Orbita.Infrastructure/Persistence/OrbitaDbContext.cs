@@ -62,6 +62,9 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     /// <summary>No query filter — the dispatcher reads across every tenant's pending events. See OutboxEventConfiguration.</summary>
     public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
 
+    /// <summary>No query filter — the send worker scans across every tenant's due jobs. See OutboundMessageJobConfiguration.</summary>
+    public DbSet<OutboundMessageJob> OutboundMessageJobs => Set<OutboundMessageJob>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
