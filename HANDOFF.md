@@ -6,17 +6,29 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-08 (3)** — Arranca `ORB-B03` (normalización de entrantes) en `feature/inbound-message-processing`, ramificada desde `feature/webhook-ingestion` (B02). Antes de escribir B03 se mergeó `origin/feature/d02-contactos` (Track D: `ORB-D04`/`D05`/`D02` — pipelines, oportunidades, contactos) a esta rama, porque B03 reutiliza el `Contact` de Track D en vez de crear el suyo — decisión explícita del usuario, ver `track-b-plan-and-branch-order` en memoria. El merge trajo conflictos aditivos esperados en `RolePermissions.cs`/`Permission.cs` (unión de permisos de ambos tracks), `OrbitaDbContext.cs`, `GlobalExceptionHandler.cs`, `DependencyInjection.cs` (Application) y los docs — todos resueltos combinando ambos lados, ninguno era lógica en conflicto real. **Esta rama sigue sin tocar `develop`**: sigue la misma estrategia de apilar branches de B01/B02 hasta que el usuario pruebe el flujo completo en Yaak/Scalar.
+
 **2026-09-08 (2)** — `ORB-B02` (ingesta de webhooks) en la rama `feature/webhook-ingestion`, **ramificada desde `feature/whatsapp-channel-connect` (B01), no desde `develop`** — desviación deliberada del plan original: el desarrollador quiere probar la API completa (WhatsApp connect + webhooks) en Yaak/Scalar antes de abrir el PR de B01 a `develop`, así que B02 se apiló sobre B01 en vez de esperar el merge. **Quien retome tiene que hacer rebase de `feature/webhook-ingestion` sobre `develop` (después de que B01 se mergee) antes de abrir su propio PR** — tal como está, su diff incluye todos los commits de B01. Ver "Track B" abajo para el detalle de lo implementado. Misma limitación de Docker que B01: las 5 pruebas de integración nuevas (`WhatsAppWebhooksControllerTests`) compilan pero no se ejecutaron; las 4 de `MetaWebhookSignatureVerifierTests` (sin base de datos) sí corrieron y pasan. Las 237 unitarias están en verde. El test de carga descrito en el plan original (concurrencia con payloads duplicados) no se escribió — ver CLAUDE.md, sección "Ingestión de webhooks (ORB-B02)".
 
 **2026-09-08 (1)** — Arranca el Track B (Canales y Bandeja) en este repo con `ORB-B01` (conectar WhatsApp) en la rama `feature/whatsapp-channel-connect`. El plan detallado de las 19 historias del track (orden, ramas, ports/stand-ins, dependencias con Track D) quedó acordado antes de empezar; ver la sección "Track B" abajo. La máquina donde se desarrolló `ORB-B01` **no tenía Docker**, así que las 11 pruebas de integración nuevas (`ChannelsControllerTests`, `ChannelCredentialStoreTests`) compilan pero no se ejecutaron ahí — quien retome debe correr `dotnet test Orbita.slnx` con Docker antes de mergear. Las 215 unitarias sí están en verde.
 
-**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
+**2026-09-07 (2)** — `ORB-D02` (ficha de contacto) en `feature/d02-contactos`, apilada sobre `feature/d05-oportunidades`.
+
+**2026-09-07 (1)** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
 
 ## Qué está implementado
 
 Ver la sección "Qué hay implementado hoy" en [`README.md`](./README.md) — se mantiene sincronizada ahí, no se duplica aquí.
 
-Track A (Plataforma, Identidad y Facturación — dueño de este repo):
+Track D (CRM — dueño de pipelines/contactos en este repo, vertical full-stack):
+
+- [x] `ORB-D04` Pipelines y etapas — default `Ventas` al registrar
+- [x] `ORB-D05` Tablero de oportunidades — create/move + SignalR
+- [x] `ORB-D02` Ficha de contacto — listado, dedup por teléfono/Instagram, campos custom, vínculo a oportunidades; historial de conversación queda para Track B
+- [ ] `ORB-D06` Crear oportunidad desde la conversación (depende de `ORB-D05` y `ORB-B13`)
+- [ ] `ORB-D03` Búsqueda de contactos
+
+Track A (Plataforma, Identidad y Facturación):
 
 - [x] `ORB-A05` Registro de organización
 - [x] `ORB-A09` Aislamiento entre organizaciones

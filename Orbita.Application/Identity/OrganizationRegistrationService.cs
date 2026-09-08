@@ -1,4 +1,5 @@
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
 
@@ -13,6 +14,8 @@ public sealed class OrganizationRegistrationService(
     ITenantRepository tenantRepository,
     IUserRepository userRepository,
     IMembershipRepository membershipRepository,
+    IPipelineRepository pipelineRepository,
+    IPipelineStageRepository pipelineStageRepository,
     ITenantContextSetter tenantContextSetter,
     IUnitOfWork unitOfWork,
     IPasswordHasher passwordHasher,
@@ -46,9 +49,17 @@ public sealed class OrganizationRegistrationService(
         // acting tenant must be this brand-new tenant before it is inserted.
         tenantContextSetter.SetTenant(tenant.Id);
 
+        var (pipeline, stages) = DefaultSalesPipeline.Create(tenant.Id, now);
+
         await tenantRepository.AddAsync(tenant, cancellationToken);
         await userRepository.AddAsync(user, cancellationToken);
         await membershipRepository.AddAsync(membership, cancellationToken);
+        await pipelineRepository.AddAsync(pipeline, cancellationToken);
+        foreach (var stage in stages)
+        {
+            await pipelineStageRepository.AddAsync(stage, cancellationToken);
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new RegisterOrganizationResult(

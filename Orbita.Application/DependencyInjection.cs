@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Audit;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
+using Orbita.Application.Crm;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -29,6 +30,9 @@ public static class DependencyInjection
         services.AddScoped<IChannelWebhookVerificationService, ChannelWebhookVerificationService>();
         services.AddScoped<IChannelTokenExpiryService, ChannelTokenExpiryService>();
         services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();
+        services.AddScoped<IPipelineService, PipelineService>();
+        services.AddScoped<IOpportunityService, OpportunityService>();
+        services.AddScoped<IContactService, ContactService>();
 
         return services;
     }

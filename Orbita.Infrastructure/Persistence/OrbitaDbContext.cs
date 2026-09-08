@@ -3,6 +3,7 @@ using Orbita.Domain.Audit;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Channels;
@@ -42,6 +43,16 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     /// </summary>
     public DbSet<InboundWebhookEvent> InboundWebhookEvents => Set<InboundWebhookEvent>();
 
+    public DbSet<Pipeline> Pipelines => Set<Pipeline>();
+
+    public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
+
+    public DbSet<Opportunity> Opportunities => Set<Opportunity>();
+
+    public DbSet<Contact> Contacts => Set<Contact>();
+
+    public DbSet<ContactFieldDefinition> ContactFieldDefinitions => Set<ContactFieldDefinition>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -59,5 +70,20 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<AuditLogEntry>()
             .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Pipeline>()
+            .HasQueryFilter(p => tenantContext.TenantId == null || p.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<PipelineStage>()
+            .HasQueryFilter(s => tenantContext.TenantId == null || s.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Opportunity>()
+            .HasQueryFilter(o => tenantContext.TenantId == null || o.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Contact>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<ContactFieldDefinition>()
+            .HasQueryFilter(f => tenantContext.TenantId == null || f.TenantId == tenantContext.TenantId);
     }
 }

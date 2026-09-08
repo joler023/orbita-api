@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Orbita.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Orbita.Infrastructure.Persistence;
 namespace Orbita.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(OrbitaDbContext))]
-    partial class OrbitaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907202907_AddContacts")]
+    partial class AddContacts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -203,156 +206,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("subscriptions", (string)null);
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Channels.ChannelAccount", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset?>("ConnectedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("connected_at");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CredentialsRef")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("credentials_ref");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
-
-                    b.Property<string>("ExternalId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("external_id");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("kind");
-
-                    b.Property<string>("PhoneE164")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("phone_e164");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset?>("TokenExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("token_expires_at");
-
-                    b.Property<string>("WabaId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("waba_id");
-
-                    b.Property<string>("WebhookSecret")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("webhook_secret");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind", "ExternalId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_channel_external");
-
-                    b.HasIndex("TenantId", "Kind")
-                        .HasDatabaseName("ix_channel_accounts_tenant_kind");
-
-                    b.ToTable("channel_accounts", (string)null);
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Channels.InboundWebhookEvent", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<short>("Attempts")
-                        .HasColumnType("smallint")
-                        .HasColumnName("attempts");
-
-                    b.Property<Guid>("ChannelAccountId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("channel_account_id");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("kind");
-
-                    b.Property<string>("LastError")
-                        .HasColumnType("text")
-                        .HasColumnName("last_error");
-
-                    b.Property<DateTimeOffset?>("LockedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("locked_at");
-
-                    b.Property<string>("PayloadHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("payload_hash");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("payload");
-
-                    b.Property<DateTimeOffset?>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("processed_at");
-
-                    b.Property<DateTimeOffset>("ReceivedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("received_at");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PayloadHash")
-                        .IsUnique();
-
-                    b.HasIndex("Status", "Id");
-
-                    b.HasIndex("TenantId", "Status", "ReceivedAt");
-
-                    b.ToTable("inbound_webhook_events", (string)null);
                 });
 
             modelBuilder.Entity("Orbita.Domain.Crm.Contact", b =>
@@ -624,7 +477,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
 
                     b.ToTable("pipeline_stages", (string)null);
                 });
-
 
             modelBuilder.Entity("Orbita.Domain.Identity.InvitationToken", b =>
                 {
@@ -956,41 +808,12 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("tenants", (string)null);
                 });
 
-            modelBuilder.Entity("Orbita.Infrastructure.Channels.ChannelCredential", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Ciphertext")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("ciphertext");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("channel_credentials", (string)null);
-                });
-
             modelBuilder.Entity("Orbita.Domain.Audit.AuditLogEntry", b =>
                 {
                     b.HasOne("Orbita.Domain.Identity.User", null)
                         .WithMany()
                         .HasForeignKey("ActorId");
 
-                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Channels.ChannelAccount", b =>
-                {
                     b.HasOne("Orbita.Domain.Tenants.Tenant", null)
                         .WithMany()
                         .HasForeignKey("TenantId")
