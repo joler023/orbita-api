@@ -40,4 +40,7 @@ public enum Permission
 
     /// <summary>Create and edit contacts and custom fields (ORB-D02).</summary>
     ManageContacts,
+
+    /// <summary>Send outbound messages on a conversation (ORB-B05). Agents included.</summary>
+    SendMessages,
 }

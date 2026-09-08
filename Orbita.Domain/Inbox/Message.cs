@@ -144,6 +144,65 @@ public sealed class Message
             now);
     }
 
+    /// <summary>
+    /// Starts <see cref="MessageStatus.Queued"/> — persist-first: the message exists
+    /// before any attempt to actually send it (ORB-B05), so it's visible immediately and
+    /// survives a crash between queueing and dispatch.
+    /// </summary>
+    public static Message OutboundText(
+        Guid tenantId,
+        Guid conversationId,
+        string body,
+        Guid? sentByUserId,
+        MessageCategory category,
+        DateTimeOffset now)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id is required.", nameof(tenantId));
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new ArgumentException("Body is required.", nameof(body));
+        }
+
+        return new Message(
+            Guid.NewGuid(),
+            tenantId,
+            conversationId,
+            MessageDirection.Outbound,
+            category,
+            body,
+            mediaKey: null,
+            mediaMime: null,
+            externalId: null,
+            replyToExternalId: null,
+            templateId: null,
+            sentByUserId,
+            aiRunId: null,
+            MessageStatus.Queued,
+            sentAt: null,
+            deliveredAt: null,
+            readAt: null,
+            now);
+    }
+
+    /// <summary>Meta accepted the send — <paramref name="externalId"/> is the wamid it assigned.</summary>
+    public void MarkSent(string externalId, DateTimeOffset now)
+    {
+        ExternalId = RequireLength(externalId, ExternalIdMaxLength, nameof(externalId)) ?? throw new ArgumentException("External id is required.", nameof(externalId));
+        Status = MessageStatus.Sent;
+        SentAt = now;
+    }
+
+    /// <summary>Every retry attempt exhausted (or a non-transient error) — see MetaErrorCatalog.Describe for what counts as retryable.</summary>
+    public void MarkFailed(string errorCode)
+    {
+        Status = MessageStatus.Failed;
+        ErrorCode = RequireLength(errorCode, ErrorCodeMaxLength, nameof(errorCode));
+    }
+
     /// <summary>Records where the downloaded media ended up once ORB-B06's processor has fetched it from Meta and stored it.</summary>
     public void MarkMediaStored(string mediaKey, string mediaMime)
     {

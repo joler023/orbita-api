@@ -13,9 +13,9 @@ public static class RolePermissions
 {
     private static readonly FrozenDictionary<MemberRole, FrozenSet<Permission>> ByRole = new Dictionary<MemberRole, FrozenSet<Permission>>
     {
-        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ManageBilling, Permission.ViewAuditLog, Permission.ViewChannels, Permission.ManageChannels, Permission.ViewPipeline, Permission.ManagePipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts }.ToFrozenSet(),
-        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ViewAuditLog, Permission.ViewChannels, Permission.ManageChannels, Permission.ViewPipeline, Permission.ManagePipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts }.ToFrozenSet(),
-        [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam, Permission.ViewChannels, Permission.ViewPipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts }.ToFrozenSet(),
+        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ManageBilling, Permission.ViewAuditLog, Permission.ViewChannels, Permission.ManageChannels, Permission.ViewPipeline, Permission.ManagePipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts, Permission.SendMessages }.ToFrozenSet(),
+        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ViewAuditLog, Permission.ViewChannels, Permission.ManageChannels, Permission.ViewPipeline, Permission.ManagePipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts, Permission.SendMessages }.ToFrozenSet(),
+        [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam, Permission.ViewChannels, Permission.ViewPipeline, Permission.ManageOpportunities, Permission.ViewContacts, Permission.ManageContacts, Permission.SendMessages }.ToFrozenSet(),
         [MemberRole.Viewer] = new HashSet<Permission> { Permission.ViewTeam, Permission.ViewChannels, Permission.ViewPipeline, Permission.ViewContacts }.ToFrozenSet(),
     }.ToFrozenDictionary();
 
