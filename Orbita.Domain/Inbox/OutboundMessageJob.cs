@@ -18,7 +18,7 @@ public sealed class OutboundMessageJob
         Guid messageId,
         DateTimeOffset messageCreatedAt,
         Guid channelAccountId,
-        DateTimeOffset now)
+        DateTimeOffset createdAt)
     {
         TenantId = tenantId;
         MessageId = messageId;
@@ -26,8 +26,8 @@ public sealed class OutboundMessageJob
         ChannelAccountId = channelAccountId;
         Status = OutboundJobStatus.Pending;
         Attempts = 0;
-        NextAttemptAt = now;
-        CreatedAt = now;
+        NextAttemptAt = createdAt;
+        CreatedAt = createdAt;
     }
 
     /// <summary>0 until Postgres assigns the real value on insert.</summary>

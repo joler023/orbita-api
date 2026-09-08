@@ -1,6 +1,7 @@
 using Moq;
 using Orbita.Application.Channels;
 using Orbita.Application.Inbox;
+using Orbita.Application.Outbox;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
@@ -19,6 +20,7 @@ public sealed class InboundMessageProcessorTests
     private readonly Mock<IContactRepository> _contacts = new();
     private readonly Mock<IConversationRepository> _conversations = new();
     private readonly Mock<IMessageRepository> _messages = new();
+    private readonly Mock<IOutboxWriter> _outboxWriter = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly InboundMessageProcessor _sut;
 
@@ -38,6 +40,7 @@ public sealed class InboundMessageProcessorTests
             _contacts.Object,
             _conversations.Object,
             _messages.Object,
+            _outboxWriter.Object,
             _unitOfWork.Object,
             new FixedTimeProvider(Now));
     }
@@ -110,6 +113,48 @@ public sealed class InboundMessageProcessorTests
 
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StagesMessageReceivedEvent()
+    {
+        SetupItems(new InboundMessage("phone-1", "wamid.1", "573001234567", "Ana", ChannelKind.WhatsApp, "hola", null, null, null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Message), It.IsAny<Guid>(), "message.received", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NewConversation_AlsoStagesConversationOpenedEvent()
+    {
+        SetupItems(new InboundMessage("phone-1", "wamid.1", "573001234567", "Ana", ChannelKind.WhatsApp, "hola", null, null, null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        _outboxWriter.Verify(
+            w => w.StageAsync(TenantId, nameof(Conversation), It.IsAny<Guid>(), "conversation.opened", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ExistingConversation_DoesNotStageConversationOpenedAgain()
+    {
+        var contact = Contact.Create(TenantId, "Ana", Now, phone: "573001234567");
+        var conversation = Conversation.Open(TenantId, contact.Id, ChannelAccountId, Now.AddDays(-1));
+        _contacts.Setup(c => c.FindByPhoneAsync(TenantId, "573001234567", It.IsAny<CancellationToken>())).ReturnsAsync(contact);
+        _conversations
+            .Setup(c => c.FindOpenByContactAndAccountAsync(contact.Id, ChannelAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(conversation);
+        SetupItems(new InboundMessage("phone-1", "wamid.1", "573001234567", "Ana", ChannelKind.WhatsApp, "hola", null, null, null, Now));
+
+        await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
+
+        _outboxWriter.Verify(
+            w => w.StageAsync(It.IsAny<Guid>(), nameof(Conversation), It.IsAny<Guid>(), "conversation.opened", It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private void SetupItems(params InboundItem[] items)

@@ -4,6 +4,7 @@ using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Crm;
 using Orbita.Application.Identity;
+using Orbita.Application.Inbox;
 using Orbita.Application.Tenants;
 
 namespace Orbita.Api.ErrorHandling;
@@ -54,6 +55,9 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             ContactNotFoundException => (StatusCodes.Status404NotFound, "Contact not found"),
             ContactAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact already exists"),
             ContactFieldAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact field already exists"),
+            ConversationNotFoundException => (StatusCodes.Status404NotFound, "Conversation not found"),
+            ChannelNotConnectedException => (StatusCodes.Status409Conflict, "Channel not connected"),
+            MessageNotFoundException => (StatusCodes.Status404NotFound, "Message not found"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
