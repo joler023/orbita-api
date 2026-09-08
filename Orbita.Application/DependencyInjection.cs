@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Audit;
 using Orbita.Application.Billing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -24,6 +25,9 @@ public static class DependencyInjection
         services.AddScoped<ISubscriptionWebhookService, SubscriptionWebhookService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ITenantSettingsService, TenantSettingsService>();
+        services.AddScoped<IWhatsAppChannelService, WhatsAppChannelService>();
+        services.AddScoped<IChannelWebhookVerificationService, ChannelWebhookVerificationService>();
+        services.AddScoped<IChannelTokenExpiryService, ChannelTokenExpiryService>();
 
         return services;
     }
