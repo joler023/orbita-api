@@ -52,6 +52,19 @@ public sealed class WhatsAppChannelAdapter(IChannelCredentialStore credentialSto
         }
     }
 
+    public async Task<string> SendTemplateAsync(ChannelAccount account, string toExternalId, string templateName, string language, IReadOnlyList<string> variables, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var accessToken = await credentialStore.GetAsync(account.CredentialsRef, cancellationToken);
+            return await whatsAppClient.SendTemplateAsync(accessToken, account.ExternalId, toExternalId, templateName, language, variables, cancellationToken);
+        }
+        catch (MetaApiException exception)
+        {
+            throw ToChannelSendException(exception);
+        }
+    }
+
     private static ChannelSendException ToChannelSendException(MetaApiException exception)
     {
         var errorCode = exception.ErrorCode?.ToString() ?? "unknown";

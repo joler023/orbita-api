@@ -45,3 +45,12 @@ internal sealed record WhatsAppUploadMediaResponse([property: JsonPropertyName("
 internal sealed record WhatsAppMediaUrlResponse(
     [property: JsonPropertyName("url")] string Url,
     [property: JsonPropertyName("mime_type")] string MimeType);
+
+/// <summary>GET /{waba_id}/message_templates.</summary>
+internal sealed record WhatsAppTemplateListResponse([property: JsonPropertyName("data")] IReadOnlyList<WhatsAppTemplateData> Data);
+
+internal sealed record WhatsAppTemplateData(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("language")] string Language,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejected_reason")] string? RejectedReason);

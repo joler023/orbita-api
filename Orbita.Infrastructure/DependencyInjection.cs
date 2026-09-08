@@ -72,6 +72,7 @@ public static class DependencyInjection
         services.AddScoped<IContactFieldDefinitionRepository, ContactFieldDefinitionRepository>();
         services.AddScoped<IConversationRepository, ConversationRepository>();
         services.AddScoped<IMessageRepository, MessageRepository>();
+        services.AddScoped<IMessageTemplateRepository, MessageTemplateRepository>();
         services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<IIntegrationEventPublisher, InProcessIntegrationEventPublisher>();
         services.AddHostedService<OutboxDispatcherWorker>();

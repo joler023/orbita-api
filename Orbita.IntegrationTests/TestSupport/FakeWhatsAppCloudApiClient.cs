@@ -75,6 +75,27 @@ public sealed class FakeWhatsAppCloudApiClient : IWhatsAppCloudApiClient
         return Task.FromResult<(Stream, string)>((new MemoryStream(bytes), mime));
     }
 
+    /// <summary>Set per test to control what ListTemplatesAsync returns.</summary>
+    public IReadOnlyList<WhatsAppTemplateInfo> Templates { get; set; } = [];
+
+    public Task<IReadOnlyList<WhatsAppTemplateInfo>> ListTemplatesAsync(string accessToken, string wabaId, CancellationToken cancellationToken)
+        => Task.FromResult(Templates);
+
+    public Task<string> SendTemplateAsync(string accessToken, string phoneNumberId, string toWaId, string templateName, string language, IReadOnlyList<string> variables, CancellationToken cancellationToken)
+    {
+        var body = $"{templateName}({string.Join(",", variables)})";
+        var errorCode = NextSendErrorCode?.Invoke(body);
+        if (errorCode is not null)
+        {
+            NextSendErrorCode = null;
+            throw new MetaApiException($"Simulated Meta error {errorCode}.", errorCode);
+        }
+
+        var wamid = $"wamid.fake-{Guid.NewGuid():N}";
+        _sentMessages.Enqueue(new SentMessage(phoneNumberId, toWaId, body, wamid));
+        return Task.FromResult(wamid);
+    }
+
     public WebhookSubscription LatestSubscriptionFor(string wabaId) => _subscriptions.Last(s => s.WabaId == wabaId);
 
     public IReadOnlyCollection<SentMessage> SentMessages => _sentMessages;

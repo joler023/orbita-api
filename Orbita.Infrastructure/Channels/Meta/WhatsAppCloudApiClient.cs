@@ -129,6 +129,47 @@ public sealed class WhatsAppCloudApiClient : IWhatsAppCloudApiClient
         return (stream, mime);
     }
 
+    public async Task<IReadOnlyList<WhatsAppTemplateInfo>> ListTemplatesAsync(string accessToken, string wabaId, CancellationToken cancellationToken)
+    {
+        using var request = Authorized(HttpMethod.Get, $"{Uri.EscapeDataString(wabaId)}/message_templates?fields=name,language,status,rejected_reason", accessToken);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var result = await MetaGraphResponseReader.ReadAsync<WhatsAppTemplateListResponse>(response, cancellationToken);
+        return result.Data.Select(d => new WhatsAppTemplateInfo(d.Name, d.Language, d.Status, d.RejectedReason)).ToList();
+    }
+
+    public async Task<string> SendTemplateAsync(string accessToken, string phoneNumberId, string toWaId, string templateName, string language, IReadOnlyList<string> variables, CancellationToken cancellationToken)
+    {
+        using var request = Authorized(HttpMethod.Post, $"{Uri.EscapeDataString(phoneNumberId)}/messages", accessToken);
+        var components = variables.Count == 0
+            ? Array.Empty<object>()
+            :
+            [
+                new
+                {
+                    type = "body",
+                    parameters = variables.Select(v => new { type = "text", text = v }).ToArray(),
+                },
+            ];
+        request.Content = JsonContent.Create(new
+        {
+            messaging_product = "whatsapp",
+            to = toWaId,
+            type = "template",
+            template = new
+            {
+                name = templateName,
+                language = new { code = language },
+                components,
+            },
+        });
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var result = await MetaGraphResponseReader.ReadAsync<WhatsAppSendMessageResponse>(response, cancellationToken);
+        return result.Messages is [{ Id: { Length: > 0 } id }, ..]
+            ? id
+            : throw new MetaApiException("Meta accepted the send but returned no message id.");
+    }
+
     private static HttpRequestMessage Authorized(HttpMethod method, string relativeUrl, string accessToken)
         => new(method, relativeUrl)
         {

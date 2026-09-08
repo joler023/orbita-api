@@ -30,6 +30,7 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.ExternalId).HasColumnName("external_id").HasMaxLength(Message.ExternalIdMaxLength);
         builder.Property(m => m.ReplyToExternalId).HasColumnName("reply_to_external_id").HasMaxLength(Message.ExternalIdMaxLength);
         builder.Property(m => m.TemplateId).HasColumnName("template_id");
+        builder.Property(m => m.TemplateVariablesJson).HasColumnName("template_variables").HasColumnType("jsonb");
         builder.Property(m => m.SentByUserId).HasColumnName("sent_by_user_id");
         builder.Property(m => m.AiRunId).HasColumnName("ai_run_id");
         builder.Property(m => m.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(20).IsRequired();

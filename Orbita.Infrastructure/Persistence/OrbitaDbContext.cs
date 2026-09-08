@@ -65,6 +65,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     /// <summary>No query filter — the send worker scans across every tenant's due jobs. See OutboundMessageJobConfiguration.</summary>
     public DbSet<OutboundMessageJob> OutboundMessageJobs => Set<OutboundMessageJob>();
 
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OrbitaDbContext).Assembly);
@@ -103,5 +105,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<Message>()
             .HasQueryFilter(m => tenantContext.TenantId == null || m.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<MessageTemplate>()
+            .HasQueryFilter(t => tenantContext.TenantId == null || t.TenantId == tenantContext.TenantId);
     }
 }
