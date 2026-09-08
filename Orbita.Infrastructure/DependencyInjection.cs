@@ -6,15 +6,20 @@ using Orbita.Application.Common;
 using Orbita.Domain.Audit;
 using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
+using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Billing;
+using Orbita.Infrastructure.Channels;
+using Orbita.Infrastructure.Channels.Meta;
 using Orbita.Infrastructure.Identity;
 using Orbita.Infrastructure.Persistence;
 using Orbita.Infrastructure.Persistence.Repositories;
+using Orbita.Infrastructure.Workers;
 
 namespace Orbita.Infrastructure;
 
@@ -71,6 +76,28 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<IRequestContext, HttpRequestContext>();
 
+        AddChannels(services);
+
         return services;
+    }
+
+    /// <summary>ORB-B01: WhatsApp connection. See CLAUDE.md's Channels section for what each stand-in replaces.</summary>
+    private static void AddChannels(IServiceCollection services)
+    {
+        services.AddScoped<IChannelAccountRepository, ChannelAccountRepository>();
+        services.AddScoped<IChannelCredentialStore, DataProtectionChannelCredentialStore>();
+        services.AddSingleton<IChannelWebhookSettings, ConfigurationChannelWebhookSettings>();
+
+        // Graph API clients: typed HttpClients, same registration shape as Wompi. The
+        // factory's default request/response logging is removed on purpose — it writes
+        // the full request URI at Information level, and Meta's OAuth endpoints carry
+        // the app secret and access tokens in the query string.
+        services.AddHttpClient<MetaAuthClient>().RemoveAllLoggers();
+        services.AddScoped<IMetaAuthClient>(sp => sp.GetRequiredService<MetaAuthClient>());
+        services.AddHttpClient<WhatsAppCloudApiClient>().RemoveAllLoggers();
+        services.AddScoped<IWhatsAppCloudApiClient>(sp => sp.GetRequiredService<WhatsAppCloudApiClient>());
+
+        services.AddOptions<WorkerOptions>().BindConfiguration(WorkerOptions.SectionName);
+        services.AddHostedService<ChannelTokenExpiryWorker>();
     }
 }

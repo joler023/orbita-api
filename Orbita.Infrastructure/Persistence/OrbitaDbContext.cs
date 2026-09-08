@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Orbita.Domain.Audit;
 using Orbita.Domain.Billing;
+using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
 using Orbita.Domain.Tenants;
+using Orbita.Infrastructure.Channels;
 
 namespace Orbita.Infrastructure.Persistence;
 
@@ -27,6 +29,12 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<TwoFactorBackupCode> TwoFactorBackupCodes => Set<TwoFactorBackupCode>();
+
+    /// <summary>No query filter on purpose — see ChannelAccount (resolved from a webhook before any tenant is known).</summary>
+    public DbSet<ChannelAccount> ChannelAccounts => Set<ChannelAccount>();
+
+    /// <summary>Infrastructure-only stand-in for Secrets Manager — see DataProtectionChannelCredentialStore.</summary>
+    public DbSet<ChannelCredential> ChannelCredentials => Set<ChannelCredential>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
