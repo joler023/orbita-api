@@ -47,11 +47,20 @@ public sealed class ContactRepository(OrbitaDbContext dbContext) : IContactRepos
         {
             var term = query.Trim();
             var like = $"%{term}%";
+            // ORB-D03: ILIKE keeps short prefixes working; pg_trgm ranks typos and
+            // incomplete names. Indexes live in AddContactTrigramSearch.
             contacts = contacts.Where(contact =>
                 EF.Functions.ILike(contact.DisplayName, like)
-                || (contact.Phone != null && EF.Functions.ILike(contact.Phone, like))
-                || (contact.InstagramUsername != null && EF.Functions.ILike(contact.InstagramUsername, like))
-                || (contact.Email != null && EF.Functions.ILike(contact.Email, like)));
+                || EF.Functions.TrigramsAreSimilar(contact.DisplayName, term)
+                || (contact.Phone != null && (EF.Functions.ILike(contact.Phone, like) || EF.Functions.TrigramsAreSimilar(contact.Phone, term)))
+                || (contact.InstagramUsername != null && (EF.Functions.ILike(contact.InstagramUsername, like) || EF.Functions.TrigramsAreSimilar(contact.InstagramUsername, term)))
+                || (contact.Email != null && (EF.Functions.ILike(contact.Email, like) || EF.Functions.TrigramsAreSimilar(contact.Email, term))));
+
+            return await contacts
+                .OrderByDescending(contact => EF.Functions.TrigramsSimilarity(contact.DisplayName, term))
+                .ThenBy(contact => contact.DisplayName)
+                .Take(100)
+                .ToListAsync(cancellationToken);
         }
 
         return await contacts

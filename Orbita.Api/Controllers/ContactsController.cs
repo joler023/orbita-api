@@ -5,7 +5,7 @@ using Orbita.Application.Crm;
 
 namespace Orbita.Api.Controllers;
 
-/// <summary>ORB-D02: contacts, custom fields, and linked opportunities. Conversation history is Track B.</summary>
+/// <summary>ORB-D02/D03: contacts, custom fields, and trigram search. Conversation history is Track B.</summary>
 [ApiController]
 [Authorize]
 public sealed class ContactsController(IContactService contactService) : ControllerBase
