@@ -4,6 +4,8 @@ public interface IAiAgentRepository
 {
     void Add(AiAgent agent);
 
+    void Remove(AiAgent agent);
+
     /// <param name="tenantId">
     /// Passed explicitly and checked, even though the EF query filter and the RLS policy
     /// already scope by tenant — the same defense in depth the rest of the codebase uses.
