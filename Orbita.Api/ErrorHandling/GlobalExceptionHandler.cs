@@ -36,6 +36,7 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
             TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
             AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
+            CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
             KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
             UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),
             // 413 rather than 400: the request was well formed, it was just too big.
