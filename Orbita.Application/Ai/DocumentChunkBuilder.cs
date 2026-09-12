@@ -1,3 +1,4 @@
+using Orbita.Application.Media;
 using Orbita.Domain.Ai;
 using Orbita.Domain.Common;
 
@@ -9,7 +10,7 @@ namespace Orbita.Application.Ai;
 /// chunks.
 /// </summary>
 public sealed class DocumentChunkBuilder(
-    IKnowledgeDocumentStorage storage,
+    IMediaStorage storage,
     IEnumerable<ITextExtractor> extractors,
     ITextChunker chunker,
     ILlmProvider llmProvider,
@@ -73,7 +74,11 @@ public sealed class DocumentChunkBuilder(
         var extractor = extractors.FirstOrDefault(candidate => candidate.SupportedExtensions.Contains(extension))
             ?? throw new NotSupportedException($"No sabemos leer archivos «{extension}».");
 
-        await using var content = await storage.OpenAsync(storageKey, cancellationToken);
+        // ORB-B06's storage returns null for a missing object rather than throwing; the
+        // indexer reports a missing original as a readable failure, so it becomes one here.
+        await using var content = await storage.OpenReadAsync(storageKey, cancellationToken)
+            ?? throw new FileNotFoundException("The stored document is missing.", storageKey);
+
         var text = await extractor.ExtractAsync(content, cancellationToken);
 
         return string.IsNullOrWhiteSpace(text)

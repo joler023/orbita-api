@@ -5,7 +5,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Ai;
 using Orbita.Application.Common;
+using Orbita.Application.Media;
 using Orbita.Infrastructure.Ai;
+using Orbita.Infrastructure.Media;
 using Orbita.Domain.Ai;
 using Orbita.Domain.Audit;
 using Orbita.Infrastructure.Common;
@@ -172,7 +174,11 @@ public static class DependencyInjection
         services.AddSingleton<ITextExtractor, PdfTextExtractor>();
         services.AddSingleton<ITextExtractor, DocxTextExtractor>();
 
-        services.AddSingleton<IKnowledgeDocumentStorage, LocalDiskKnowledgeDocumentStorage>();
+        // ORB-B06's storage, reused rather than duplicated — see IMediaStorage. The
+        // options section and the lifetime match how Channels registers it, so the two
+        // registrations collapse into one when the branches meet.
+        services.AddOptions<MediaOptions>().BindConfiguration(MediaOptions.SectionName);
+        services.AddScoped<IMediaStorage, LocalFileMediaStorage>();
 
         services.AddHostedService<KnowledgeIndexingHostedService>();
     }

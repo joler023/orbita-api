@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Orbita.Application.Common;
 using Orbita.Application.Identity;
+using Orbita.Application.Media;
 using Orbita.Domain.Ai;
 using Orbita.Domain.Common;
 using Orbita.Domain.Identity;
@@ -13,7 +14,7 @@ public sealed class KnowledgeDocumentService(
     IKnowledgeDocumentRepository documentRepository,
     IKnowledgeChunkRepository chunkRepository,
     IKnowledgeIndexingQueue indexingQueue,
-    IKnowledgeDocumentStorage storage,
+    IMediaStorage storage,
     ITenantAuthorizationService authorizationService,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IKnowledgeDocumentService
@@ -56,7 +57,11 @@ public sealed class KnowledgeDocumentService(
 
         await RequireAgentAsync(tenantId, agentId, cancellationToken);
 
-        var storageKey = await storage.SaveAsync(tenantId, request.FileName, request.Content, cancellationToken);
+        // ORB-B06's storage takes the key rather than inventing one, so it is built here.
+        // The object id is its own GUID, not the document's: the document row does not
+        // exist yet, and the key only has to be unique and namespaced by tenant.
+        var storageKey = KnowledgeDocumentKey.For(tenantId, Guid.NewGuid(), extension);
+        await storage.SaveAsync(storageKey, request.Content, cancellationToken);
 
         var document = KnowledgeDocument.Create(
             tenantId,
@@ -93,7 +98,8 @@ public sealed class KnowledgeDocumentService(
         // the row: the indexer then has exactly one way to read a document's source,
         // whatever it was created from.
         using var content = new MemoryStream(Encoding.UTF8.GetBytes(text));
-        var storageKey = await storage.SaveAsync(tenantId, $"{title}.txt", content, cancellationToken);
+        var storageKey = KnowledgeDocumentKey.For(tenantId, Guid.NewGuid(), ".txt");
+        await storage.SaveAsync(storageKey, content, cancellationToken);
 
         var document = KnowledgeDocument.Create(
             tenantId,

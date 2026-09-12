@@ -11,7 +11,8 @@ using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
-using Orbita.Infrastructure.Ai;
+using Orbita.Application.Media;
+using Orbita.Infrastructure.Media;
 using Orbita.Infrastructure.Persistence;
 using Orbita.IntegrationTests.Ai;
 using Orbita.IntegrationTests.TestSupport;
@@ -90,15 +91,14 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             // Left running, it would race every assertion about a document's status.
             services.RemoveAll<IHostedService>();
 
-            // Uploaded files go to a directory this fixture owns and deletes.
-            services.RemoveAll<IKnowledgeDocumentStorage>();
-            services.AddSingleton<IKnowledgeDocumentStorage>(
-                new LocalDiskKnowledgeDocumentStorage(new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["Ai:KnowledgeStorage:RootPath"] = KnowledgeStorageRoot,
-                    })
-                    .Build()));
+            // Uploaded files go to a directory this fixture owns, instead of the shared
+            // media root. Same storage implementation as production (ORB-B06's), only
+            // pointed somewhere disposable.
+            services.RemoveAll<IMediaStorage>();
+            services.AddSingleton<IMediaStorage>(
+                new LocalFileMediaStorage(
+                    Microsoft.Extensions.Options.Options.Create(
+                        new MediaOptions { LocalStoragePath = KnowledgeStorageRoot })));
         });
     }
 
