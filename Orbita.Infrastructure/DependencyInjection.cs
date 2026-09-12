@@ -107,7 +107,11 @@ public static class DependencyInjection
     /// </summary>
     private static void AddLlmProviders(IServiceCollection services)
     {
-        services.AddSingleton<ILlmModelSelector, ConfigurationLlmModelSelector>();
+        // Scoped, not singleton: it reads the tenant's overrides through the unit of work.
+        // The cross-request cache it uses is the singleton IMemoryCache.
+        services.AddMemoryCache();
+        services.AddScoped<ILlmModelSelector, TenantAwareLlmModelSelector>();
+        services.AddSingleton<IModelPreferenceCacheInvalidator, ModelPreferenceCacheInvalidator>();
         services.AddSingleton<ILlmPricing, ConfigurationLlmPricing>();
 
         services.AddHttpClient<OllamaLlmProvider>((serviceProvider, client) =>
@@ -168,6 +172,7 @@ public static class DependencyInjection
         services.AddScoped<IKnowledgeDocumentRepository, KnowledgeDocumentRepository>();
         services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
+        services.AddScoped<ITenantModelPreferenceRepository, TenantModelPreferenceRepository>();
         services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
 
         services.AddSingleton<ITextExtractor, PlainTextExtractor>();

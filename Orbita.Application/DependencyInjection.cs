@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<IKnowledgeDocumentService, KnowledgeDocumentService>();
         services.AddScoped<IKnowledgeSearchService, KnowledgeSearchService>();
         services.AddScoped<IAiAgentService, AiAgentService>();
+        services.AddScoped<IModelPreferenceService, ModelPreferenceService>();
 
         return services;
     }
