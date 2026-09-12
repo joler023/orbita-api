@@ -319,7 +319,13 @@ public sealed class KnowledgeSearchApiTests(TenantsApiFixture fixture) : IClassF
         var agents = scope.ServiceProvider.GetRequiredService<IAiAgentRepository>();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        var agent = AiAgent.Create(tenantId, name, $"Eres el asistente de {name}.", DateTimeOffset.UtcNow);
+        var agent = AiAgent.Create(
+            tenantId,
+            name,
+            $"Eres el asistente de {name}.",
+            "Respondes con la información de tus documentos.",
+            AgentTone.Balanced,
+            DateTimeOffset.UtcNow);
         agents.Add(agent);
         await unitOfWork.SaveChangesAsync(CancellationToken.None);
 

@@ -17,7 +17,33 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
         builder.Property(a => a.TenantId).HasColumnName("tenant_id").IsRequired();
         builder.Property(a => a.Name).HasColumnName("name").HasMaxLength(120).IsRequired();
         builder.Property(a => a.SystemPrompt).HasColumnName("system_prompt").IsRequired();
-        builder.Property(a => a.Temperature).HasColumnName("temperature").HasPrecision(3, 2).IsRequired();
+
+        // Not in orbita-schema.dbml: what the owner actually typed, kept so the
+        // configuration screen can show it back for editing. system_prompt above is what
+        // gets sent to the model, composed from these two — see AiAgent.
+        builder.Property(a => a.Personality)
+            .HasColumnName("personality").HasMaxLength(AiAgent.PersonalityMaxLength).IsRequired();
+        builder.Property(a => a.Instructions)
+            .HasColumnName("instructions").HasMaxLength(AiAgent.InstructionsMaxLength).IsRequired();
+
+        // Likewise: the named level the owner chose. temperature is derived from it.
+        builder.Property(a => a.Tone)
+            .HasColumnName("tone").HasConversion<string>().HasMaxLength(20).IsRequired();
+
+        // Computed from Tone, never set independently — mapped so the column
+        // orbita-schema.dbml specifies still holds a real value for anything reading the
+        // table directly.
+        builder.Property(a => a.Temperature)
+            .HasColumnName("temperature").HasPrecision(3, 2).IsRequired();
+
+        // jsonb, as the DBML specifies. A list of catalog keys, so it stays readable in
+        // psql rather than becoming an opaque blob.
+        builder.Property<List<string>>("_tools")
+            .HasColumnName("tools")
+            .HasColumnType("jsonb")
+            .HasField("_tools")
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .IsRequired();
         builder.Property(a => a.MaxTokens).HasColumnName("max_tokens").IsRequired();
         builder.Property(a => a.IsEnabled).HasColumnName("is_enabled").IsRequired();
         builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired();
