@@ -7,6 +7,8 @@ public sealed class AiAgentRepository(OrbitaDbContext dbContext) : IAiAgentRepos
 {
     public void Add(AiAgent agent) => dbContext.AiAgents.Add(agent);
 
+    public void Remove(AiAgent agent) => dbContext.AiAgents.Remove(agent);
+
     public Task<AiAgent?> GetByIdAsync(Guid tenantId, Guid agentId, CancellationToken cancellationToken)
         => dbContext.AiAgents.SingleOrDefaultAsync(a => a.Id == agentId && a.TenantId == tenantId, cancellationToken);
 
