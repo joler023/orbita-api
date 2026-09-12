@@ -31,7 +31,7 @@ public sealed class OllamaLlmProvider(HttpClient httpClient, ILlmModelSelector m
 
     public async Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
-        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
+        var model = await modelSelector.SelectModelAsync(request.TenantId, request.Task, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: false), cancellationToken);
         var payload = await ReadAsync<OllamaChatResponse>(response, cancellationToken);
@@ -55,7 +55,7 @@ public sealed class OllamaLlmProvider(HttpClient httpClient, ILlmModelSelector m
         LlmCompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
+        var model = await modelSelector.SelectModelAsync(request.TenantId, request.Task, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: true), cancellationToken);
 
@@ -121,7 +121,7 @@ public sealed class OllamaLlmProvider(HttpClient httpClient, ILlmModelSelector m
 
     public async Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
-        var model = modelSelector.SelectModel(tenantId, LlmTask.Embed, Name);
+        var model = await modelSelector.SelectModelAsync(tenantId, LlmTask.Embed, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(EmbedPath, new OllamaEmbedRequest { Model = model, Input = text }, cancellationToken);
         var payload = await ReadAsync<OllamaEmbedResponse>(response, cancellationToken);

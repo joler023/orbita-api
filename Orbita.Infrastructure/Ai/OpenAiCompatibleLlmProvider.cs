@@ -42,7 +42,7 @@ public sealed class OpenAiCompatibleLlmProvider(
 
     public async Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
-        var model = modelSelector.SelectModel(request.TenantId, request.Task, Name);
+        var model = await modelSelector.SelectModelAsync(request.TenantId, request.Task, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(ChatPath, BuildChatRequest(request, model, stream: false), cancellationToken);
         var payload = await ReadAsync<OpenAiChatResponse>(response, cancellationToken);
@@ -69,7 +69,7 @@ public sealed class OpenAiCompatibleLlmProvider(
         LlmCompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var resolvedModel = modelSelector.SelectModel(request.TenantId, request.Task, Name);
+        var resolvedModel = await modelSelector.SelectModelAsync(request.TenantId, request.Task, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(ChatPath, BuildChatRequest(request, resolvedModel, stream: true), cancellationToken);
 
@@ -158,7 +158,7 @@ public sealed class OpenAiCompatibleLlmProvider(
 
     public async Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
-        var model = modelSelector.SelectModel(tenantId, LlmTask.Embed, Name);
+        var model = await modelSelector.SelectModelAsync(tenantId, LlmTask.Embed, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(
             EmbeddingsPath,

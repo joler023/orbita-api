@@ -8,10 +8,14 @@ internal sealed class StubModelSelector(string chatModel, string embeddingModel)
 {
     public List<string> RequestedProviders { get; } = [];
 
-    public string SelectModel(Guid tenantId, LlmTask task, string providerName)
+    public Task<string> SelectModelAsync(
+        Guid tenantId,
+        LlmTask task,
+        string providerName,
+        CancellationToken cancellationToken)
     {
         RequestedProviders.Add(providerName);
-        return task is LlmTask.Embed ? embeddingModel : chatModel;
+        return Task.FromResult(task is LlmTask.Embed ? embeddingModel : chatModel);
     }
 }
 
