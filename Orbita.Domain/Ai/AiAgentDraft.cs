@@ -111,6 +111,25 @@ public sealed class AiAgentDraft : Entity
     }
 
     /// <summary>
+    /// The assistant this draft <em>would</em> be if it were published — built, never stored.
+    ///
+    /// ORB-C11's test bench runs against this: trying changes out before customers see them
+    /// is the entire point of having a draft, so a test chat that answered with the
+    /// published configuration would be answering the wrong question.
+    ///
+    /// Its <see cref="Entity.Id"/> is a fresh one and means nothing. Anything attributing
+    /// work to the real assistant — an <c>ai_runs</c> row, say — must use the id of the
+    /// agent this draft belongs to, never the preview's.
+    /// </summary>
+    public AiAgent AsUnsavedPreview(DateTimeOffset now)
+    {
+        var preview = AiAgent.Create(TenantId, Name, Personality, Instructions, Style, now);
+        preview.EnableTools(_tools);
+
+        return preview;
+    }
+
+    /// <summary>
     /// Whether this draft actually differs from what is live.
     ///
     /// Saving a form unchanged must not leave the screen claiming there are unpublished
