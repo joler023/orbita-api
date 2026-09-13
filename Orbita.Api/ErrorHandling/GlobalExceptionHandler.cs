@@ -42,6 +42,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),
             // 413 rather than 400: the request was well formed, it was just too big.
             DocumentTooLargeException => (StatusCodes.Status413PayloadTooLarge, "Document too large"),
+            // 502 rather than 500: the request was fine and this API is fine — the model
+            // provider behind it is not, and every configured one was already tried
+            // (ResilientLlmProvider). The caller can meaningfully retry.
+            LlmProviderException => (StatusCodes.Status502BadGateway, "Model provider unavailable"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

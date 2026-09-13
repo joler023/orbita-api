@@ -27,10 +27,22 @@ public sealed class FakeLlmProvider : ILlmProvider
 
     public int EmbedCallCount { get; private set; }
 
+    /// <summary>
+    /// What the last completion was asked with. ORB-C11's tests assert on the prompt — that
+    /// the draft's instructions and the retrieved passages actually reached the model — and
+    /// the reply alone cannot show that.
+    /// </summary>
+    public LlmCompletionRequest? LastCompletionRequest { get; private set; }
+
+    /// <summary>Set to control what the next completion answers.</summary>
+    public string NextReply { get; set; } = "respuesta de prueba";
+
     public Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
+        LastCompletionRequest = request;
         ThrowIfScripted();
-        return Task.FromResult(new LlmCompletionResult("respuesta de prueba", [], Usage("fake-chat")));
+
+        return Task.FromResult(new LlmCompletionResult(NextReply, [], Usage("fake-chat")));
     }
 
     public async IAsyncEnumerable<LlmChunk> StreamAsync(
@@ -89,5 +101,13 @@ public sealed class FakeLlmProvider : ILlmProvider
         }
     }
 
-    private static LlmUsage Usage(string model) => new(model, 10, 0, 0m, 1, null);
+    private static LlmUsage Usage(string model) => new(model, 10, 5, 0m, 1, "stop");
+
+    /// <summary>Between tests that share the fixture, so one does not read another's prompt.</summary>
+    public void Reset()
+    {
+        LastCompletionRequest = null;
+        NextReply = "respuesta de prueba";
+        NextFailure = null;
+    }
 }
