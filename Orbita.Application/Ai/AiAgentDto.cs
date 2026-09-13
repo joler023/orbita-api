@@ -8,11 +8,11 @@ namespace Orbita.Application.Ai;
 /// Deliberately missing: <c>systemPrompt</c>, <c>model</c>, <c>maxTokens</c> and
 /// <c>temperature</c>. The configuration screen is forbidden from showing model jargon,
 /// so exposing those would only hand the frontend values it is not allowed to display —
-/// and would let a UI change what should be a backend decision. <see cref="Tone"/> is the
-/// product-facing stand-in for temperature; the model and token budget are resolved per
-/// task (ORB-C13).
+/// and would let a UI change what should be a backend decision. <see cref="AgentStyleDto"/>
+/// is the product-facing stand-in; the model is resolved per task (ORB-C13) and the token
+/// budget per verbosity.
 /// </summary>
-/// <param name="Tone">Serialized as its name (<c>"Balanced"</c>), like every enum on this API.</param>
+/// <param name="Style">The three sliders. Each level serializes as its name (<c>"Balanced"</c>).</param>
 /// <param name="Tools">Enabled tool keys, from <see cref="AiToolCatalog"/>.</param>
 /// <param name="ConversationCount">
 /// How many conversations this assistant handled in the last 30 days — what screen 2.5
@@ -25,7 +25,7 @@ public sealed record AiAgentDto(
     string Name,
     string Personality,
     string Instructions,
-    AgentTone Tone,
+    AgentStyleDto Style,
     IReadOnlyList<string> Tools,
     bool IsEnabled,
     int ConversationCount,
@@ -37,9 +37,24 @@ public sealed record AiAgentDto(
             agent.Name,
             agent.Personality,
             agent.Instructions,
-            agent.Tone,
+            AgentStyleDto.From(agent.Style),
             agent.Tools,
             agent.IsEnabled,
             conversationCount,
             agent.CreatedAt);
+}
+
+/// <summary>
+/// The three sliders on ORB-C10's "Quién es" card: formal↔cercano, breve↔detallado,
+/// neutro↔entusiasta.
+/// </summary>
+public sealed record AgentStyleDto(
+    FormalityLevel Formality,
+    VerbosityLevel Verbosity,
+    EnergyLevel Energy)
+{
+    public static AgentStyleDto From(AgentStyle style)
+        => new(style.Formality, style.Verbosity, style.Energy);
+
+    public AgentStyle ToStyle() => new(Formality, Verbosity, Energy);
 }

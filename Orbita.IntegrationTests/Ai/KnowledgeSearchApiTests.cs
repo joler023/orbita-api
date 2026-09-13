@@ -324,7 +324,7 @@ public sealed class KnowledgeSearchApiTests(TenantsApiFixture fixture) : IClassF
             name,
             $"Eres el asistente de {name}.",
             "Respondes con la información de tus documentos.",
-            AgentTone.Balanced,
+            AgentStyle.Default,
             DateTimeOffset.UtcNow);
         agents.Add(agent);
         await unitOfWork.SaveChangesAsync(CancellationToken.None);

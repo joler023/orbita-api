@@ -60,5 +60,5 @@ public sealed record SaveAiAgentRequest(
     string Name,
     string Personality,
     string Instructions,
-    AgentTone Tone,
+    AgentStyleDto Style,
     IReadOnlyList<string> Tools);

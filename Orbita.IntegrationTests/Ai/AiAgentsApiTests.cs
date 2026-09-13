@@ -22,7 +22,9 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
         var agent = Assert.Single(await ListAsync(client, cookies, tenantId));
 
         Assert.False(agent.IsEnabled);
-        Assert.Equal(AgentTone.Balanced, agent.Tone);
+        Assert.Equal(FormalityLevel.Balanced, agent.Style.Formality);
+        Assert.Equal(VerbosityLevel.Balanced, agent.Style.Verbosity);
+        Assert.Equal(EnergyLevel.Balanced, agent.Style.Energy);
         Assert.Equal([AiToolCatalog.ConsultarConocimiento], agent.Tools);
     }
 
@@ -60,7 +62,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 name = "Sofía",
                 personality = "Eres cercana y directa.",
                 instructions = "Nunca prometes descuentos que no estén en el catálogo.",
-                tone = "Conversational",
+                style = Style("Warm", "Brief", "Enthusiastic"),
                 tools = new[] { AiToolCatalog.ConsultarConocimiento },
             });
 
@@ -69,13 +71,15 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
 
         var created = await response.Content.ReadFromJsonAsync<AiAgentDto>(TestRequests.JsonOptions);
         Assert.Equal("Sofía", created!.Name);
-        Assert.Equal(AgentTone.Conversational, created.Tone);
+        Assert.Equal(FormalityLevel.Warm, created.Style.Formality);
+        Assert.Equal(VerbosityLevel.Brief, created.Style.Verbosity);
+        Assert.Equal(EnergyLevel.Enthusiastic, created.Style.Energy);
         // Created off, always: turning it on is a separate, deliberate act.
         Assert.False(created.IsEnabled);
     }
 
     [Fact]
-    public async Task Reconfiguring_an_assistant_round_trips_exactly_what_the_owner_typed()
+    public async Task Reconfiguring_an_assistant_round_trips_every_one_of_the_three_axes()
     {
         var client = TestRequests.CreateClient(fixture);
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
@@ -91,7 +95,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 name = "Asistente de ventas",
                 personality = "Eres entusiasta.",
                 instructions = "Ofreces el catálogo completo.",
-                tone = "Formal",
+                style = Style("Formal", "Detailed", "Neutral"),
                 tools = Array.Empty<string>(),
             });
 
@@ -100,13 +104,16 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
 
         Assert.Equal("Asistente de ventas", updated!.Name);
         Assert.Equal("Eres entusiasta.", updated.Personality);
-        Assert.Equal(AgentTone.Formal, updated.Tone);
+        Assert.Equal(FormalityLevel.Formal, updated.Style.Formality);
+        Assert.Equal(VerbosityLevel.Detailed, updated.Style.Verbosity);
+        Assert.Equal(EnergyLevel.Neutral, updated.Style.Energy);
         Assert.Empty(updated.Tools);
 
         // And it survives a round trip to the database, not just the response.
         var reloaded = await GetAsync(client, cookies, tenantId, agent.Id);
         Assert.Equal("Eres entusiasta.", reloaded.Personality);
-        Assert.Equal(AgentTone.Formal, reloaded.Tone);
+        Assert.Equal(FormalityLevel.Formal, reloaded.Style.Formality);
+        Assert.Equal(VerbosityLevel.Detailed, reloaded.Style.Verbosity);
     }
 
     [Fact]
@@ -147,7 +154,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 name = "Vendedor",
                 personality = "Eres persuasivo.",
                 instructions = "Cierras ventas.",
-                tone = "Balanced",
+                style = Style("Balanced", "Balanced", "Balanced"),
                 tools = new[] { AiToolCatalog.CrearOportunidad },
             });
 
@@ -271,6 +278,10 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
         Assert.Empty(page!.Items);
     }
 
+    /// <summary>The three sliders, as the screen sends them.</summary>
+    private static object Style(string formality, string verbosity, string energy)
+        => new { formality, verbosity, energy };
+
     private static async Task<AiAgentDto> CreateAsync(HttpClient client, CookieJar cookies, Guid tenantId, string name)
     {
         var response = await TestRequests.SendAsync(
@@ -283,7 +294,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 name,
                 personality = "Eres servicial.",
                 instructions = "Respondes con los documentos del negocio.",
-                tone = "Balanced",
+                style = Style("Balanced", "Balanced", "Balanced"),
                 tools = Array.Empty<string>(),
             });
 

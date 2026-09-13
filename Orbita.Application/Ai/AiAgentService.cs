@@ -46,7 +46,12 @@ public sealed class AiAgentService(
         ArgumentNullException.ThrowIfNull(request);
 
         var agent = AiAgent.Create(
-            tenantId, request.Name, request.Personality, request.Instructions, request.Tone, timeProvider.GetUtcNow());
+            tenantId,
+            request.Name,
+            request.Personality,
+            request.Instructions,
+            request.Style.ToStyle(),
+            timeProvider.GetUtcNow());
 
         agent.EnableTools(request.Tools);
 
@@ -68,9 +73,8 @@ public sealed class AiAgentService(
 
         var agent = await RequireAgentAsync(tenantId, agentId, cancellationToken);
 
-        agent.Rename(request.Name);
-        agent.Reconfigure(request.Personality, request.Instructions, request.Tone);
-        agent.EnableTools(request.Tools);
+        agent.ApplyConfiguration(
+            request.Name, request.Personality, request.Instructions, request.Style.ToStyle(), request.Tools);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

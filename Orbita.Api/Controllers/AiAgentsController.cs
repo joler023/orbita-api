@@ -102,10 +102,10 @@ public sealed record SaveAiAgentBody(
     [Required, MaxLength(AiAgent.NameMaxLength)] string Name,
     [Required, MaxLength(AiAgent.PersonalityMaxLength)] string Personality,
     [Required, MaxLength(AiAgent.InstructionsMaxLength)] string Instructions,
-    AgentTone Tone,
+    [Required] AgentStyleDto Style,
     IReadOnlyList<string>? Tools = null)
 {
-    public SaveAiAgentRequest ToRequest() => new(Name, Personality, Instructions, Tone, Tools ?? []);
+    public SaveAiAgentRequest ToRequest() => new(Name, Personality, Instructions, Style, Tools ?? []);
 }
 
 public sealed record SetAgentEnabledRequest(bool IsEnabled);

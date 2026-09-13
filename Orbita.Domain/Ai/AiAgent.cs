@@ -7,18 +7,22 @@ namespace Orbita.Domain.Ai;
 /// <c>ai_agents</c>), and the thing ORB-C10's configuration screen edits.
 ///
 /// <para><b>Two vocabularies, one row.</b> The owner chooses a <see cref="Personality"/>,
-/// some <see cref="Instructions"/> and a <see cref="Tone"/>. The model needs a
-/// <see cref="SystemPrompt"/> and a <see cref="Temperature"/>. This entity holds both and
-/// keeps the second derived from the first, so neither side has to know about the other:
-/// the screen never shows the words "prompt" or "temperature" (a hard product rule —
-/// ORB-C10 is described as the second hardest screen in the product precisely because it
-/// asks a non-technical person to configure an AI), and ORB-C04 can read
+/// some <see cref="Instructions"/> and a <see cref="Style"/>. The model needs a
+/// <see cref="SystemPrompt"/>, a <see cref="Temperature"/> and a token budget. This entity
+/// holds both and keeps the second derived from the first, so neither side has to know
+/// about the other: the screen never shows the words "prompt", "temperature" or "tokens"
+/// (a hard product rule — ORB-C10 is the second hardest screen in the product precisely
+/// because it asks a non-technical person to configure an AI), and ORB-C04 can read
 /// <c>SystemPrompt</c> without knowing how it was assembled.</para>
 ///
 /// <para>Keeping the derived values in columns rather than computing them at read time is
-/// deliberate: orbita-schema.dbml specifies <c>system_prompt</c> and <c>temperature</c> as
-/// real columns, and anything reading the table directly — a worker, a migration, an
-/// analyst — should find a usable value there.</para>
+/// deliberate: orbita-schema.dbml specifies <c>system_prompt</c>, <c>temperature</c> and
+/// <c>max_tokens</c> as real columns, and anything reading the table directly — a worker, a
+/// migration, an analyst — should find a usable value there.</para>
+///
+/// <para><b>Editing does not happen here.</b> Once an assistant exists, ORB-C10's screen
+/// writes an <see cref="AiAgentDraft"/>; only publishing copies it onto this row. Nobody
+/// edits in place an assistant that is answering customers.</para>
 ///
 /// <see cref="IsEnabled"/> defaults to false: an assistant that starts answering customers
 /// the moment an organization is created would be a nasty surprise.
@@ -33,7 +37,7 @@ public sealed class AiAgent : Entity
         string name,
         string personality,
         string instructions,
-        AgentTone tone,
+        AgentStyle style,
         bool isEnabled,
         DateTimeOffset createdAt)
         : base(id)
@@ -42,11 +46,30 @@ public sealed class AiAgent : Entity
         Name = name;
         Personality = personality;
         Instructions = instructions;
-        Tone = tone;
-        Temperature = TemperatureFor(tone);
+        Style = style;
+        Temperature = TemperatureFor(style);
+        MaxTokens = MaxTokensFor(style);
         IsEnabled = isEnabled;
         CreatedAt = createdAt;
-        SystemPrompt = ComposePrompt(name, personality, instructions);
+        SystemPrompt = ComposePrompt(name, personality, instructions, style);
+    }
+
+    /// <summary>
+    /// EF Core materialization only. <see cref="Style"/> is mapped as a complex property
+    /// across three columns, and EF cannot bind one of those to a constructor parameter —
+    /// so the constructor above, the one that also derives the prompt and the sampling
+    /// values, is not the one it can call. It writes every mapped member directly instead.
+    /// </summary>
+    private AiAgent()
+        : base(Guid.Empty)
+    {
+        // EF assigns all of these from NOT NULL columns immediately after constructing the
+        // instance, so no null ever reaches anything that reads them.
+        Name = null!;
+        Personality = null!;
+        Instructions = null!;
+        Style = null!;
+        SystemPrompt = null!;
     }
 
     public Guid TenantId { get; }
@@ -59,23 +82,25 @@ public sealed class AiAgent : Entity
     /// <summary>What it should and should not do. Free text written by the owner.</summary>
     public string Instructions { get; private set; }
 
-    public AgentTone Tone { get; private set; }
+    /// <summary>The three sliders: formal↔warm, brief↔detailed, neutral↔enthusiastic.</summary>
+    public AgentStyle Style { get; private set; }
 
     /// <summary>
     /// The standing instructions actually sent to the model, composed from
-    /// <see cref="Personality"/> and <see cref="Instructions"/>. Never edited directly and
-    /// never shown to a user.
+    /// <see cref="Personality"/>, <see cref="Instructions"/> and <see cref="Style"/>.
+    /// Never edited directly and never shown to a user.
     /// </summary>
     public string SystemPrompt { get; private set; }
 
     /// <summary>
-    /// Derived from <see cref="Tone"/> and rewritten whenever it changes. Stored rather
+    /// Derived from <see cref="Style"/> and rewritten whenever it changes. Stored rather
     /// than computed so anything reading <c>ai_agents</c> directly finds a real value in
     /// the column orbita-schema.dbml specifies.
     /// </summary>
     public decimal Temperature { get; private set; }
 
-    public int MaxTokens { get; private set; } = DefaultMaxTokens;
+    /// <summary>Derived from the style's verbosity — the only axis that costs money per reply.</summary>
+    public int MaxTokens { get; private set; }
 
     /// <summary>
     /// Keys from <see cref="AiToolCatalog"/> that this assistant may call. Only tools that
@@ -87,7 +112,7 @@ public sealed class AiAgent : Entity
 
     public DateTimeOffset CreatedAt { get; }
 
-    /// <summary>Defaults from orbita-schema.dbml's <c>ai_agents</c> definition.</summary>
+    /// <summary>Default from orbita-schema.dbml's <c>ai_agents</c> definition.</summary>
     public const int DefaultMaxTokens = 800;
 
     public const int NameMaxLength = 120;
@@ -106,10 +131,10 @@ public sealed class AiAgent : Entity
         var agent = Create(
             tenantId,
             "Asistente",
-            $"Eres el asistente virtual de {businessName}. Respondes con amabilidad y brevedad.",
+            $"Eres el asistente virtual de {businessName}.",
             "Respondes en el idioma en que te escriban. Si no sabes algo, lo dices y ofreces "
                 + "pasar la conversación a una persona del equipo. Nunca inventas información.",
-            AgentTone.Balanced,
+            AgentStyle.Default,
             now);
 
         agent.EnableTools([AiToolCatalog.ConsultarConocimiento]);
@@ -122,34 +147,43 @@ public sealed class AiAgent : Entity
         string name,
         string personality,
         string instructions,
-        AgentTone tone,
+        AgentStyle style,
         DateTimeOffset now)
     {
         ValidateText(name, NameMaxLength, nameof(name));
         ValidateText(personality, PersonalityMaxLength, nameof(personality));
         ValidateText(instructions, InstructionsMaxLength, nameof(instructions));
+        ArgumentNullException.ThrowIfNull(style);
 
         return new AiAgent(
-            Guid.NewGuid(), tenantId, name.Trim(), personality.Trim(), instructions.Trim(), tone, isEnabled: false, now);
+            Guid.NewGuid(), tenantId, name.Trim(), personality.Trim(), instructions.Trim(), style, isEnabled: false, now);
     }
 
-    public void Rename(string name)
+    /// <summary>
+    /// Overwrites the live configuration. Called when an <see cref="AiAgentDraft"/> is
+    /// published, never straight from a request — a request writes a draft.
+    /// </summary>
+    public void ApplyConfiguration(
+        string name,
+        string personality,
+        string instructions,
+        AgentStyle style,
+        IReadOnlyList<string> tools)
     {
         ValidateText(name, NameMaxLength, nameof(name));
-        Name = name.Trim();
-        SystemPrompt = ComposePrompt(Name, Personality, Instructions);
-    }
-
-    public void Reconfigure(string personality, string instructions, AgentTone tone)
-    {
         ValidateText(personality, PersonalityMaxLength, nameof(personality));
         ValidateText(instructions, InstructionsMaxLength, nameof(instructions));
+        ArgumentNullException.ThrowIfNull(style);
 
+        Name = name.Trim();
         Personality = personality.Trim();
         Instructions = instructions.Trim();
-        Tone = tone;
-        Temperature = TemperatureFor(tone);
-        SystemPrompt = ComposePrompt(Name, Personality, Instructions);
+        Style = style;
+        Temperature = TemperatureFor(style);
+        MaxTokens = MaxTokensFor(style);
+        SystemPrompt = ComposePrompt(Name, Personality, Instructions, style);
+
+        EnableTools(tools);
     }
 
     /// <summary>
@@ -186,34 +220,102 @@ public sealed class AiAgent : Entity
     /// Turning an assistant on is what puts it in front of customers, so it is its own
     /// operation rather than a field on a bulk update — the list screen toggles it
     /// directly, without loading the rest.
+    ///
+    /// Independent of publishing: enabling does not publish a pending draft, and
+    /// publishing does not enable. Conflating them would mean saving a configuration
+    /// accidentally turned an assistant loose on customers.
     /// </summary>
     public void SetEnabled(bool isEnabled) => IsEnabled = isEnabled;
 
     /// <summary>
     /// Assembles what the model actually receives. Kept here, in the domain, because it is
-    /// the rule that turns two product concepts into one model concept — not a
-    /// presentation detail and not a persistence one.
+    /// the rule that turns product concepts into one model concept — not a presentation
+    /// detail and not a persistence one.
     /// </summary>
-    private static string ComposePrompt(string name, string personality, string instructions)
+    private static string ComposePrompt(string name, string personality, string instructions, AgentStyle style)
         => $"""
             Te llamas {name}.
 
             {personality}
 
             {instructions}
+
+            {StyleGuidance(style)}
             """;
 
     /// <summary>
-    /// The one place the named levels become numbers. Tuning these is a backend change
-    /// with no frontend release, which is the entire point of storing the tone.
+    /// The three sliders, said in words the model can act on. Sampling parameters alone
+    /// cannot express "brief" or "warm" — temperature makes a reply more varied, not
+    /// shorter or friendlier — so the style has to reach the model as instructions too.
     /// </summary>
-    private static decimal TemperatureFor(AgentTone tone) => tone switch
+    private static string StyleGuidance(AgentStyle style)
     {
-        AgentTone.Formal => 0.10m,
-        AgentTone.Balanced => 0.30m,
-        AgentTone.Conversational => 0.70m,
-        _ => throw new ArgumentOutOfRangeException(nameof(tone), tone, "Unmapped agent tone."),
+        var formality = style.Formality switch
+        {
+            FormalityLevel.Formal => "Tratas de usted y evitas coloquialismos.",
+            FormalityLevel.Warm => "Tratas de tú, con cercanía.",
+            _ => "Usas un trato natural, ni distante ni excesivamente familiar.",
+        };
+
+        var verbosity = style.Verbosity switch
+        {
+            VerbosityLevel.Brief => "Respondes en una o dos frases.",
+            VerbosityLevel.Detailed => "Explicas con contexto y ejemplos cuando ayudan.",
+            _ => "Respondes con el detalle justo.",
+        };
+
+        var energy = style.Energy switch
+        {
+            EnergyLevel.Neutral => "Mantienes un tono sobrio.",
+            EnergyLevel.Enthusiastic => "Muestras entusiasmo genuino.",
+            _ => "Mantienes un tono cordial.",
+        };
+
+        return $"{formality} {verbosity} {energy}";
+    }
+
+    /// <summary>
+    /// The one place the named levels become numbers. Tuning these is a backend change
+    /// with no frontend release, which is the entire point of storing the style.
+    ///
+    /// Formality and energy both push variety, so they add: a warm, enthusiastic assistant
+    /// should not sample like a formal, neutral one. Verbosity does not appear here —
+    /// length is a token budget, not a temperature.
+    /// </summary>
+    private static decimal TemperatureFor(AgentStyle style)
+    {
+        var temperature = BaseTemperature
+            + style.Formality switch
+            {
+                FormalityLevel.Formal => 0.00m,
+                FormalityLevel.Warm => 0.20m,
+                _ => 0.10m,
+            }
+            + style.Energy switch
+            {
+                EnergyLevel.Neutral => 0.00m,
+                EnergyLevel.Enthusiastic => 0.25m,
+                _ => 0.10m,
+            };
+
+        return Math.Clamp(temperature, 0m, MaxTemperature);
+    }
+
+    /// <summary>
+    /// Verbosity is the only axis that costs money per reply, so it is the only one that
+    /// moves the budget. Brief is deliberately tight: on WhatsApp a wall of text is worse
+    /// than a short answer, not better.
+    /// </summary>
+    private static int MaxTokensFor(AgentStyle style) => style.Verbosity switch
+    {
+        VerbosityLevel.Brief => 300,
+        VerbosityLevel.Detailed => 1_600,
+        _ => DefaultMaxTokens,
     };
+
+    private const decimal BaseTemperature = 0.10m;
+
+    private const decimal MaxTemperature = 2.00m;
 
     private static void ValidateText(string value, int maxLength, string parameterName)
     {
