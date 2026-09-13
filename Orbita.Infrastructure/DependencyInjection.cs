@@ -169,6 +169,7 @@ public static class DependencyInjection
     private static void AddKnowledgeBase(IServiceCollection services)
     {
         services.AddScoped<IAiAgentRepository, AiAgentRepository>();
+        services.AddScoped<IAiAgentDraftRepository, AiAgentDraftRepository>();
         services.AddScoped<IKnowledgeDocumentRepository, KnowledgeDocumentRepository>();
         services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();

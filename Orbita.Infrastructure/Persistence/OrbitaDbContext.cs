@@ -31,6 +31,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
 
+    public DbSet<AiAgentDraft> AiAgentDrafts => Set<AiAgentDraft>();
+
     public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
 
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
@@ -77,5 +79,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<TenantModelPreference>()
             .HasQueryFilter(p => tenantContext.TenantId == null || p.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<AiAgentDraft>()
+            .HasQueryFilter(d => tenantContext.TenantId == null || d.TenantId == tenantContext.TenantId);
     }
 }

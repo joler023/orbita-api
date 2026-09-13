@@ -46,17 +46,49 @@ public sealed class AiAgentsController(IAiAgentService aiAgents) : ControllerBas
         return CreatedAtAction(nameof(Get), new { tenantId, agentId = agent.Id }, agent);
     }
 
+    /// <summary>
+    /// "Guardar". Parks the changes as a draft — the assistant that is answering customers
+    /// is untouched until <see cref="Publish"/>. The UX document is explicit that nobody
+    /// should edit in place an agent that is live.
+    /// </summary>
     [HttpPatch("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}")]
     [ProducesResponseType(typeof(AiAgentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<AiAgentDto>> Update(
+    public async Task<ActionResult<AiAgentDto>> SaveDraft(
         Guid tenantId,
         Guid agentId,
         [FromBody] SaveAiAgentBody body,
         CancellationToken cancellationToken)
-        => Ok(await aiAgents.UpdateAsync(tenantId, User.GetUserId(), agentId, body.ToRequest(), cancellationToken));
+        => Ok(await aiAgents.SaveDraftAsync(tenantId, User.GetUserId(), agentId, body.ToRequest(), cancellationToken));
+
+    /// <summary>
+    /// "Publicar". Copies the pending draft onto the live assistant. Does <b>not</b> enable
+    /// it — publishing a configuration and putting an assistant in front of customers are
+    /// separate decisions.
+    /// </summary>
+    [HttpPost("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}/publish")]
+    [ProducesResponseType(typeof(AiAgentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<AiAgentDto>> Publish(
+        Guid tenantId,
+        Guid agentId,
+        CancellationToken cancellationToken)
+        => Ok(await aiAgents.PublishAsync(tenantId, User.GetUserId(), agentId, cancellationToken));
+
+    /// <summary>Throws away the pending draft. The live assistant is untouched.</summary>
+    [HttpDelete("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}/draft")]
+    [ProducesResponseType(typeof(AiAgentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AiAgentDto>> DiscardDraft(
+        Guid tenantId,
+        Guid agentId,
+        CancellationToken cancellationToken)
+        => Ok(await aiAgents.DiscardDraftAsync(tenantId, User.GetUserId(), agentId, cancellationToken));
 
     /// <summary>
     /// A subresource rather than a field on the full update: screen 2.5 flips this straight

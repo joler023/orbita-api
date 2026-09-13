@@ -6,6 +6,10 @@ namespace Orbita.Application.Ai;
 /// ORB-C10: creating and configuring the assistants a tenant runs. Every method requires
 /// <c>Permission.ManageAiAgents</c> (Owner or Admin) — an assistant's instructions decide
 /// what customers are told, so it is not something a Viewer or an Agent changes.
+///
+/// <b>Saving is not publishing.</b> <see cref="SaveDraftAsync"/> parks changes;
+/// <see cref="PublishAsync"/> makes them live. The UX document is explicit that nobody
+/// should edit in place an assistant that is answering customers.
 /// </summary>
 public interface IAiAgentService
 {
@@ -14,14 +18,22 @@ public interface IAiAgentService
     /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
     Task<AiAgentDto> GetAsync(Guid tenantId, Guid callerUserId, Guid agentId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates an assistant, live. There is nothing to protect yet — a brand new assistant
+    /// is disabled and has no customers — so creation does not go through a draft.
+    /// </summary>
     Task<AiAgentDto> CreateAsync(
         Guid tenantId,
         Guid callerUserId,
         SaveAiAgentRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// "Guardar": parks the changes without touching the assistant that is answering
+    /// customers. Saving again replaces the pending draft rather than stacking another.
+    /// </summary>
     /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
-    Task<AiAgentDto> UpdateAsync(
+    Task<AiAgentDto> SaveDraftAsync(
         Guid tenantId,
         Guid callerUserId,
         Guid agentId,
@@ -29,9 +41,29 @@ public interface IAiAgentService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// "Publicar": copies the pending draft onto the live assistant and clears it. Does not
+    /// enable the assistant — see <see cref="SetEnabledAsync"/>.
+    /// </summary>
+    /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
+    /// <exception cref="NothingToPublishException">There is no pending draft.</exception>
+    Task<AiAgentDto> PublishAsync(
+        Guid tenantId,
+        Guid callerUserId,
+        Guid agentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Throws away the pending draft, leaving the live assistant untouched.</summary>
+    /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
+    Task<AiAgentDto> DiscardDraftAsync(
+        Guid tenantId,
+        Guid callerUserId,
+        Guid agentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Turning an assistant on or off, on its own. Screen 2.5 toggles it straight from the
     /// list, so making it part of the full update would force the UI to hold a whole agent
-    /// just to flip a switch.
+    /// just to flip a switch. Independent of publishing.
     /// </summary>
     /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
     Task<AiAgentDto> SetEnabledAsync(
@@ -50,12 +82,10 @@ public interface IAiAgentService
 }
 
 /// <summary>
-/// What screen 2.6 collects. The same shape for create and update, because the screen is
-/// the same form in both cases.
+/// What screen 2.6 collects. The same shape for create and for saving a draft, because it
+/// is the same form in both cases.
 /// </summary>
-/// <param name="Tools">
-/// The complete set of enabled tools, not a delta — the screen edits them as checkboxes.
-/// </param>
+/// <param name="Tools">The complete set of enabled tools, not a delta — the screen edits checkboxes.</param>
 public sealed record SaveAiAgentRequest(
     string Name,
     string Personality,
