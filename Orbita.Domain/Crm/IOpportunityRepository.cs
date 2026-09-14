@@ -23,5 +23,8 @@ public interface IOpportunityRepository
         DateTimeOffset? createdTo,
         CancellationToken cancellationToken);
 
+    /// <summary>ORB-D13: tenant-wide dump for CSV export.</summary>
+    Task<IReadOnlyList<Opportunity>> ListForExportAsync(Guid tenantId, int limit, CancellationToken cancellationToken);
+
     Task AddAsync(Opportunity opportunity, CancellationToken cancellationToken);
 }

@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<IPipelineService, PipelineService>();
         services.AddScoped<IOpportunityService, OpportunityService>();
         services.AddScoped<IContactService, ContactService>();
+        services.AddScoped<IExportService, ExportService>();
 
         return services;
     }
