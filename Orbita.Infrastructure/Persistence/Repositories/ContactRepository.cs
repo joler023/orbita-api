@@ -69,6 +69,16 @@ public sealed class ContactRepository(OrbitaDbContext dbContext) : IContactRepos
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Contact>> ListForExportAsync(
+        Guid tenantId,
+        int limit,
+        CancellationToken cancellationToken)
+        => await dbContext.Contacts
+            .Where(contact => contact.TenantId == tenantId)
+            .OrderBy(contact => contact.DisplayName)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
     public Task<int> CountByTenantAsync(Guid tenantId, CancellationToken cancellationToken)
         => dbContext.Contacts.CountAsync(contact => contact.TenantId == tenantId, cancellationToken);
 

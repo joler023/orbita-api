@@ -63,6 +63,16 @@ public sealed class OpportunityRepository(OrbitaDbContext dbContext) : IOpportun
         return await query.ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Opportunity>> ListForExportAsync(
+        Guid tenantId,
+        int limit,
+        CancellationToken cancellationToken)
+        => await dbContext.Opportunities
+            .Where(o => o.TenantId == tenantId)
+            .OrderByDescending(o => o.UpdatedAt)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
     public async Task AddAsync(Opportunity opportunity, CancellationToken cancellationToken)
         => await dbContext.Opportunities.AddAsync(opportunity, cancellationToken);
 }
