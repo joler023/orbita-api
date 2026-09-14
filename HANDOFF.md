@@ -6,7 +6,13 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
+**2026-09-14** — el foco del repo es ahora **Track C (Agentes de IA, Desarrollador 3)**. Track A sigue como está descrito abajo; nada de lo suyo se tocó.
+
+Track C tiene seis historias hechas (`C01`, `C02`, `C03`, `C10`, `C11`, `C13`) y **ninguna mergeada todavía**: viven en un stack de ramas apiladas que termina en `feature/c11-agent-test-bench`. Suite completa en verde: **279 unitarias + 170 de integración**, estas últimas contra un Postgres real con RLS aplicando (la app conecta como `orbita_app`).
+
+El estado detallado de Track C, con lo que falta y de quién depende, está en `local/checklist-track-c.md`, y el contrato acordado con el frontend en `local/coordinacion-front-back.md` (ambos fuera de git).
+
+La nota anterior, del **2026-09-07**, decía: `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` quedaron mergeadas en `develop` en ese orden, y el merge de `ORB-A15` dejó `RolePermissions.cs` con claves de diccionario duplicadas (compilaban y reventaban en runtime) más una referencia duplicada en el `.csproj` de Infrastructure, ya corregidas en `develop`.
 
 ## Qué está implementado
 
@@ -28,6 +34,19 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 
 Con esto, el track de Desarrollador 1 queda sin historias P1 pendientes que no dependan de otro track. Lo que sigue (`ORB-A13`/`ORB-A14`) necesita que Track C construya los agentes de IA primero, o (P2, `ORB-A11` ya cubierto) no hay más trabajo aislado obvio — la próxima sesión debería confirmar con el resto del equipo antes de inventar alcance nuevo aquí.
 
+Track C (Agentes de IA — foco actual):
+
+- [x] `ORB-C01` Abstracción de proveedor de modelos
+- [x] `ORB-C02` Base de conocimiento — el criterio "50 páginas en menos de 2 minutos" **sin medir**, necesita un modelo real conectado
+- [x] `ORB-C03` Búsqueda semántica — el criterio "200 ms con 100.000 fragmentos" **sin medir**, y con un límite conocido del índice (ver abajo)
+- [x] `ORB-C10` Constructor de agentes — solo el backend; las pantallas 2.5–2.8 son del frontend
+- [x] `ORB-C11` Banco de pruebas — las trazas de 4 de las 5 herramientas esperan a `ORB-D05`/`ORB-B03`
+- [x] `ORB-C13` Selección de modelo por tarea
+- [ ] `ORB-C12` Caché semántico — desbloqueada, sin empezar
+- [ ] `ORB-C04` El agente responde — necesita `ORB-B03` (mensajes, Track B)
+- [ ] `ORB-C05` El agente ejecuta acciones — necesita `ORB-D05` (oportunidades, Track D)
+- [ ] `ORB-C06` Guardrails · `ORB-C07` Traspaso a humano · `ORB-C08` Enrutador · `ORB-C09` Consumo de IA — encadenadas detrás de C04
+
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
 Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para que salten a la vista antes de tocar el área relacionada:
@@ -40,6 +59,9 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **La política "exigir MFA a todo el equipo" (`Tenant.RequireMfaForMembers`) existe pero no se aplica todavía.** Aplicarla de verdad requiere saber, antes de emitir tokens, a qué tenant(s) pertenece quien inicia sesión — y toda lectura cruzando tenants está bloqueada a propósito por la RLS de `memberships` (devuelve cero filas sin un tenant en la sesión). Es la misma decisión pendiente que el JWT sin claim de tenant. No intentar resolverlo con un bypass de RLS.
 - `AuditLogEntry` es la primera entidad con id `bigint` en vez de `Guid` (así lo pide orbita-schema.dbml) — no hereda de `Entity`. Es además la única tabla verdaderamente append-only: `orbita_app` tiene `UPDATE`/`DELETE` revocados sobre ella específicamente, a nivel de base de datos.
 - El envío de correo real está pendiente en toda la plataforma (no hay proveedor conectado); se loguea el link en su lugar. Cuando se construya `Notifications`, ese es el reemplazo, no un parche aquí.
+- **El modelo nunca se expone al frontend.** `ORB-C10` deriva `temperature`, `max_tokens`, `model` y `system_prompt` de tres ejes de producto (formal↔cercano, breve↔detallado, neutro↔entusiasta) y no los devuelve en ningún payload; el único lugar donde sí se muestran tokens y costo es el banco de pruebas de `ORB-C11`, que es una pantalla de diagnóstico. Afinar el mapeo es un cambio de backend sin release del frontend, que es exactamente para lo que se guardan los ejes en vez de los números.
+- **Editar un agente escribe un borrador, no el agente.** `ai_agent_drafts` (una fila por agente, con su propia RLS) guarda lo no publicado; `publish` lo copia encima y lo borra. Publicar no enciende el agente y encender no publica.
+- **La cola de indexado (`knowledge_indexing_queue`) es la única tabla de Track C sin RLS, a propósito**: se lee antes de saber el tenant, porque averiguarlo es justamente para qué se lee. Solo guarda dos ids y una fecha. Track B llegó a la misma conclusión para su propia cola.
 - El secreto TOTP se cifra con la Data Protection API de ASP.NET Core (`IUserSecretProtector`), no con un KMS real — es un reemplazo temporal, igual que el envío de correo por log. Su key ring local no sirve para producción multi-instancia.
 
 ## Cómo retomar el trabajo
@@ -56,4 +78,7 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-A12`: ni Stripe ni Wompi tienen credenciales reales conectadas**, y Wompi todavía no tiene forma de cobrar de manera recurrente (no existe el scheduler). Ver la sección "Billing" de `CLAUDE.md`.
 - **`ORB-A11`: política de MFA de tenant sin aplicar** — el flag existe y se puede configurar, pero ningún login lo respeta todavía (misma causa raíz que el JWT sin claim de tenant).
 - **`ORB-A15`: la bitácora solo cubre cambios de rol y remoción de miembros por ahora** — es el patrón de referencia, no una cobertura exhaustiva. Engancharla a más acciones sensibles (facturación, configuración de tenant, etc.) es trabajo incremental de una línea por caso, no una historia nueva.
+- **Sin saldo en OpenRouter.** La API key está configurada y es válida, pero la cuenta está en USD 0: todo modelo de pago devuelve `402` y **no existen embeddings gratuitos**, así que nada de `ORB-C02`/`ORB-C03` puede indexar ni buscar contra un modelo real. Las pruebas pasan con un embebedor falso determinista. Con USD 5 sobra (indexar un PDF de 50 páginas cuesta ~USD 0.0007).
+- **El índice HNSW no se usa hoy.** Al filtrar por `tenant_id`, Postgres prefiere filtrar por tenant y ordenar los sobrevivientes — correcto mientras el corpus de un cliente sea chico, y no cuando sean decenas de miles de fragmentos **por tenant**. Opciones documentadas en la migración `AddKnowledgeChunkHnswIndex`.
+- **Riesgo de conflicto al mergear Track C.** Sus ramas tocan seis archivos compartidos con Track B/D: `Permission.cs`, `RolePermissions.cs`, `OrbitaDbContext.cs`, los dos `DependencyInjection.cs` y `GlobalExceptionHandler.cs`. Ya pasó con `ORB-A15` (claves duplicadas que compilaban y reventaban en runtime); conviene avisar al equipo antes de mergear.
 - **`orbita-front` sigue en scaffold** — no hay cliente HTTP ni pantallas reales todavía, así que ningún endpoint de este repo tiene todavía un consumidor real más allá de las pruebas de integración.
