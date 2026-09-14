@@ -6,7 +6,11 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
+**2026-09-14** — `ORB-A16` (sesión y organizaciones) en la rama `feature/a16-current-user-memberships`, sacada de `develop` y **sin mergear todavía**. Suite en verde sobre esa rama: 183 unitarias + 69 de integración.
+
+Dos avisos para quien lleve Track A: se escribió desde la sesión de Track C, con autorización explícita del equipo, porque el frontend estaba bloqueado —no se podía entrar al producto en un navegador nuevo— y ningún otro track lo iba a tomar ese día. Y toca `memberships` y el `UnitOfWork`, así que **revisar antes de mergear**: es exactamente la clase de archivo que ya se pisó una vez. En concreto, cualquier rama con una implementación propia de `IUnitOfWork` (hay una en las pruebas de Track C) deja de compilar al aparecer el método nuevo, y git no lo marca como conflicto.
+
+La nota anterior, del **2026-09-07**: `ORB-A08`, `ORB-A10`, `ORB-A11`, `ORB-A12` y `ORB-A15` ya están mergeados en `develop` (en ese orden). El merge de `ORB-A15` dejó `RolePermissions.cs` con las tres ramas pisándose (claves de diccionario duplicadas para `Owner`/`Admin`, que compilaban pero reventaban en tiempo de ejecución) y el `.csproj` de Infrastructure con una referencia duplicada — ya corregido directamente en `develop`. Toda la suite (175 unitarias + 62 de integración) está en verde sobre `develop` a día de hoy.
 
 ## Qué está implementado
 
@@ -23,6 +27,7 @@ Track A (Plataforma, Identidad y Facturación — dueño de este repo):
 - [x] `ORB-A11` Verificación en dos pasos — política de MFA de tenant guardada, **no aplicada en runtime** (ver abajo)
 - [x] `ORB-A12` Planes y suscripción — **código completo, sin credenciales reales conectadas** (ver abajo)
 - [x] `ORB-A15` Bitácora de auditoría — solo cambios de rol/remoción de miembros auditados por ahora
+- [x] `ORB-A16` Sesión y organizaciones — `GET /api/auth/me` devuelve las membresías del usuario; segunda política RLS `own_memberships` sobre `memberships`
 - [ ] `ORB-A13` Medición de consumo — necesita que exista Track C (agentes de IA) primero
 - [ ] `ORB-A14` Límites del plan — depende de A12 (listo) y A13 (no)
 
@@ -36,6 +41,7 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - El JWT solo lleva `sub` (id de usuario), nunca un claim de tenant. Cuál organización actúa una sesión se resuelve explícitamente en cada endpoint tenant-scoped, no se infiere del token.
 - Las invitaciones toman el tenant de la ruta (`/api/tenants/{tenantId}/...`), no del JWT, para no necesitar nunca un "listar mis membresías cruzando tenants" que pelearía con Row-Level Security.
 - Los permisos por rol viven en `RolePermissions` (`Owner`/`Admin`/`Agent`/`Viewer`), consultados a través de `ITenantAuthorizationService` — cualquier chequeo de rol nuevo pasa por ahí, no se repite inline.
+- **Hay dos variables de sesión, no una.** `app.tenant_id` es la de siempre; `app.user_id` la agregó `ORB-A16` para poder preguntar "¿a qué organizaciones pertenezco?", que por definición no se puede responder con un tenant ya elegido. La segunda política sobre `memberships` (`own_memberships`, `FOR SELECT`) casa por esa variable, y **un solo método la setea** — `IUnitOfWork.QueryInUserScopeAsync`, siempre con el id del claim `sub`, nunca con uno que venga en la petición. Al ser `SET LOCAL` muere con su transacción, así que la política es inerte en cualquier otro camino. Si alguna vez hace falta setearla desde otro lado, revisar esto primero.
 - **Row-Level Security bloquea toda lectura cuando no hay un tenant activo en la sesión** (cero filas, no "todas"). `InvitationToken`, `PasswordResetToken`, `RefreshToken` y `Subscription` se diseñan a propósito **sin** RLS/query filter por esto — se buscan por un id opaco externo antes de saber a qué tenant pertenecen. `audit_log` sí lleva RLS normal (siempre se lee con el tenant ya conocido), pero cualquier lectura después de que `EnsurePermissionAsync` ya cerró su propia transacción necesita su propio `QueryInTenantScopeAsync` — `SET LOCAL app.tenant_id` no sobrevive a la transacción que lo puso.
 - **La política "exigir MFA a todo el equipo" (`Tenant.RequireMfaForMembers`) existe pero no se aplica todavía.** Aplicarla de verdad requiere saber, antes de emitir tokens, a qué tenant(s) pertenece quien inicia sesión — y toda lectura cruzando tenants está bloqueada a propósito por la RLS de `memberships` (devuelve cero filas sin un tenant en la sesión). Es la misma decisión pendiente que el JWT sin claim de tenant. No intentar resolverlo con un bypass de RLS.
 - `AuditLogEntry` es la primera entidad con id `bigint` en vez de `Guid` (así lo pide orbita-schema.dbml) — no hereda de `Entity`. Es además la única tabla verdaderamente append-only: `orbita_app` tiene `UPDATE`/`DELETE` revocados sobre ella específicamente, a nivel de base de datos.
