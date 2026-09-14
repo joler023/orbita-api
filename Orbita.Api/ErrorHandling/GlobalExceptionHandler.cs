@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
@@ -34,6 +35,17 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
             TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
             TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
+            AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
+            CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
+            NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),
+            KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
+            UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),
+            // 413 rather than 400: the request was well formed, it was just too big.
+            DocumentTooLargeException => (StatusCodes.Status413PayloadTooLarge, "Document too large"),
+            // 502 rather than 500: the request was fine and this API is fine — the model
+            // provider behind it is not, and every configured one was already tried
+            // (ResilientLlmProvider). The caller can meaningfully retry.
+            LlmProviderException => (StatusCodes.Status502BadGateway, "Model provider unavailable"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

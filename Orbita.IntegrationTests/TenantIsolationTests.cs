@@ -36,7 +36,9 @@ public sealed class TenantIsolationTests : IClassFixture<TenantsApiFixture>
         var tenantContext = new AmbientTenantContext();
         tenantContext.SetTenant(tenantA.TenantId);
         var adminOptions = new DbContextOptionsBuilder<OrbitaDbContext>()
-            .UseNpgsql(_fixture.GetAdminConnectionString())
+            // UseVector, like the production registration: without it EF cannot map
+            // knowledge_chunks.embedding and the whole model fails to build.
+            .UseNpgsql(_fixture.GetAdminConnectionString(), npgsql => npgsql.UseVector())
             .Options;
         await using var dbContext = new OrbitaDbContext(adminOptions, tenantContext);
 
