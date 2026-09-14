@@ -10,6 +10,7 @@ namespace Orbita.Api.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(
     IAuthenticationService authenticationService,
+    ICurrentUserService currentUserService,
     IPasswordResetService passwordResetService,
     IWebHostEnvironment environment) : ControllerBase
 {
@@ -51,10 +52,19 @@ public sealed class AuthController(
         return NoContent();
     }
 
+    /// <summary>
+    /// Who is signed in, and which organizations they can act as (ORB-A16).
+    ///
+    /// The organizations are the point. The access token carries no tenant claim and the
+    /// tenant is a route parameter everywhere else, so without this a client that has just
+    /// signed in — on a device it has never used — has nothing to tell it where to go.
+    /// </summary>
     [HttpGet("me")]
     [Authorize]
-    [ProducesResponseType(typeof(CurrentUserIdResponse), StatusCodes.Status200OK)]
-    public ActionResult<CurrentUserIdResponse> Me() => Ok(new CurrentUserIdResponse(User.GetUserId()));
+    [ProducesResponseType(typeof(CurrentUser), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<CurrentUser>> Me(CancellationToken cancellationToken)
+        => Ok(await currentUserService.GetAsync(User.GetUserId(), cancellationToken));
 
     /// <summary>
     /// Always responds 202 regardless of whether the email belongs to an account
@@ -84,5 +94,3 @@ public sealed class AuthController(
 }
 
 public sealed record CurrentUserResponse(Guid UserId, string Email, string FullName);
-
-public sealed record CurrentUserIdResponse(Guid UserId);

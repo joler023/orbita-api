@@ -185,6 +185,11 @@ public sealed class TenantAwareLlmModelSelectorTests
         public Task ExecuteInTenantScopeAsync(
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken) => operation(cancellationToken);
+
+        public Task<TResult> QueryInUserScopeAsync<TResult>(
+            Guid userId,
+            Func<CancellationToken, Task<TResult>> query,
+            CancellationToken cancellationToken) => query(cancellationToken);
     }
 }
 
