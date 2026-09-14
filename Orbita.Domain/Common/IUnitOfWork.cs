@@ -23,4 +23,29 @@ public interface IUnitOfWork
     Task<TResult> QueryInTenantScopeAsync<TResult>(
         Func<CancellationToken, Task<TResult>> query,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs a read scoped to one <em>person</em> rather than to one organization, by
+    /// synchronizing `app.user_id` the way <see cref="QueryInTenantScopeAsync{TResult}"/>
+    /// synchronizes `app.tenant_id`.
+    ///
+    /// <para>This exists for exactly one question: "which organizations does the person
+    /// who just signed in belong to?" (ORB-A16). It cannot be answered tenant-scoped —
+    /// the answer is what tells you the tenant — and it cannot be answered unscoped
+    /// either, because the Row Level Security policy on <c>memberships</c> returns zero
+    /// rows, silently, when no tenant is set.</para>
+    ///
+    /// <para><b>The user id must come from the authenticated session, never from the
+    /// request.</b> It is what the database will trust: passing an id a caller supplied
+    /// would let anyone read anyone's memberships. Callers take it from the JWT's
+    /// <c>sub</c> claim.</para>
+    ///
+    /// Like the tenant one, the value is set with SET LOCAL semantics, so it is gone when
+    /// the transaction ends and a pooled connection can never carry it into whatever runs
+    /// next.
+    /// </summary>
+    Task<TResult> QueryInUserScopeAsync<TResult>(
+        Guid userId,
+        Func<CancellationToken, Task<TResult>> query,
+        CancellationToken cancellationToken);
 }

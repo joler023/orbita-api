@@ -39,6 +39,37 @@ public sealed class UnitOfWork(OrbitaDbContext dbContext, ITenantContext tenantC
         return result;
     }
 
+    public async Task<TResult> QueryInUserScopeAsync<TResult>(
+        Guid userId,
+        Func<CancellationToken, Task<TResult>> query,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await SynchronizeTenantSessionAsync(cancellationToken);
+        await SynchronizeUserSessionAsync(userId, cancellationToken);
+        var result = await query(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    /// <summary>
+    /// Sets `app.user_id`, which the second policy on <c>memberships</c> matches on. Same
+    /// SET LOCAL semantics as the tenant: it dies with this transaction, so the policy is
+    /// inert on every other code path — nothing else in the application sets this value.
+    ///
+    /// The tenant is synchronized too, just above, and deliberately not skipped: a
+    /// user-scoped read still has to behave correctly if it happens inside a request that
+    /// already established a tenant. The two policies combine with OR, so setting both can
+    /// only widen to the caller's own rows, never to somebody else's.
+    /// </summary>
+    private Task SynchronizeUserSessionAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var userIdValue = userId.ToString();
+        return dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT set_config('app.user_id', {userIdValue}, true);",
+            cancellationToken);
+    }
+
     private Task SynchronizeTenantSessionAsync(CancellationToken cancellationToken)
     {
         var tenantIdValue = tenantContext.TenantId?.ToString() ?? string.Empty;
