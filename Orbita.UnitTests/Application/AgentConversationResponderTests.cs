@@ -166,7 +166,12 @@ public sealed class AgentConversationResponderTests
         var system = string.Join("\n", _lastRequest!.Messages.Where(m => m.Role == LlmMessageRole.System).Select(m => m.Content));
 
         Assert.Contains("mismo idioma", system, StringComparison.Ordinal);
-        Assert.Contains("pasar la conversación con una persona", system, StringComparison.Ordinal);
+        Assert.Contains("escribirle al equipo", system, StringComparison.Ordinal);
+
+        // The assistant points at the team; it never says it will arrange the handoff.
+        // Nothing exists to arrange until ORB-C07, so an offer would leave a customer
+        // who answers "sí, por favor" waiting for something nobody was told about.
+        Assert.Contains("Nunca digas que vas a avisarle a alguien", system, StringComparison.Ordinal);
 
         // Órbita serves Colombia, Mexico and Spain: the assistant mirrors how the
         // customer writes instead of imposing one treatment on all three.

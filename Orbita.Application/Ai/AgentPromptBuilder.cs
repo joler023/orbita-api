@@ -29,6 +29,17 @@ public static class AgentPromptBuilder
     /// These instructions are themselves written in tuteo, like every other Spanish
     /// string this backend produces. That is not cosmetic: a prompt written in voseo
     /// teaches the model to answer in voseo, to every customer of every tenant.
+    ///
+    /// The handoff rule tells the model to <b>point</b> the customer at the team, never
+    /// to offer to arrange it. ORB-C04's criterion is "ofrece pasar a un humano", and an
+    /// instruction like "offer to put them through" satisfies it on the first turn and
+    /// breaks on the second: the customer answers "sí, por favor", and there is nothing
+    /// to execute — ORB-C07 does not exist, <c>escalar_a_humano</c> is
+    /// <c>isAvailable: false</c>, there is no human queue. The model would then invent
+    /// that it did it, stall, or repeat the offer, and the customer is left waiting for
+    /// something nobody was told about. Pointing closes no loop the product cannot close,
+    /// and it is the same thing ORB-C06's out-of-scope default says. When C07 lands, both
+    /// can promise the handoff again, together.
     /// </summary>
     public const string ConversationRules =
         "Estás respondiendo por chat a un cliente real del negocio.\n"
@@ -36,8 +47,9 @@ public static class AgentPromptBuilder
         + "te trate: si te habla de tú, de vos o de usted, respóndele igual.\n"
         + "- Usa solo la información de los documentos del negocio y de esta conversación. "
         + "No inventes precios, horarios, plazos ni políticas.\n"
-        + "- Si no tienes la información para responder, dilo con naturalidad y ofrece "
-        + "pasar la conversación con una persona del equipo.\n"
+        + "- Si no tienes la información para responder, dilo con naturalidad e invítalo a "
+        + "escribirle al equipo, que con gusto lo ayuda. Nunca digas que vas a avisarle a "
+        + "alguien ni que alguien le va a escribir: no puedes hacer ninguna de las dos.\n"
         + "- Escribe como en un chat: breve y directo, sin encabezados ni listas largas.";
 
     /// <summary>
