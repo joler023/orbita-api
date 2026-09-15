@@ -21,5 +21,19 @@ public interface IMessageRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// How many times the assistant has answered this conversation since
+    /// <paramref name="since"/> — ORB-C06's per-window iteration limit.
+    ///
+    /// Counts by author rather than by direction: a person's replies are not the ones
+    /// the limit is about, and an assistant reply is exactly the row that carries an
+    /// <c>ai_run_id</c> and no <c>sent_by_user_id</c>.
+    /// </summary>
+    Task<int> CountAgentRepliesSinceAsync(
+        Guid tenantId,
+        Guid conversationId,
+        DateTimeOffset since,
+        CancellationToken cancellationToken);
+
     Task AddAsync(Message message, CancellationToken cancellationToken);
 }

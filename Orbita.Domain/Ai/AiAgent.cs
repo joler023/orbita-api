@@ -31,6 +31,8 @@ public sealed class AiAgent : Entity
 {
     private readonly List<string> _tools = [];
 
+    private readonly List<string> _blockedTopics = [];
+
     private AiAgent(
         Guid id,
         Guid tenantId,
@@ -108,6 +110,34 @@ public sealed class AiAgent : Entity
     /// </summary>
     public IReadOnlyList<string> Tools => _tools;
 
+    /// <summary>
+    /// Subjects this assistant must not handle, in the owner's own words (ORB-C06).
+    ///
+    /// Free text rather than a catalog, because what is out of scope is entirely the
+    /// business's call: a clinic blocks "diagnóstico" and "dosis", a bakery blocks
+    /// "descuento". A closed list drawn up by us would be wrong for almost everyone.
+    ///
+    /// Matching is a case- and accent-insensitive substring test on the customer's
+    /// message, checked before the model is called — so an out-of-scope question costs
+    /// nothing and gets a person instead of an answer.
+    /// </summary>
+    public IReadOnlyList<string> BlockedTopics => _blockedTopics;
+
+    /// <summary>
+    /// What the customer hears when they ask about a blocked subject (ORB-C06).
+    ///
+    /// Editable by the business, with a default, rather than a sentence the backend picks.
+    /// It never passes through the model — that is the point of blocking before the call —
+    /// so it cannot mirror the customer's language or treatment the way a generated reply
+    /// does. Given that, the owner's own words are worth more than ours: she knows how she
+    /// wants to sound when her assistant declines.
+    ///
+    /// The default deliberately promises nothing the product cannot do. "Ya les aviso y te
+    /// escriben" would be a lie today: ORB-C07 does not exist, there is no human queue and
+    /// nobody gets notified. When C07 lands, the default can promise the handoff.
+    /// </summary>
+    public string OutOfScopeReply { get; private set; } = DefaultOutOfScopeReply;
+
     public bool IsEnabled { get; private set; }
 
     public DateTimeOffset CreatedAt { get; }
@@ -116,6 +146,15 @@ public sealed class AiAgent : Entity
     public const int DefaultMaxTokens = 800;
 
     public const int NameMaxLength = 120;
+
+    public const int BlockedTopicMaxLength = 120;
+
+    public const int MaxBlockedTopics = 50;
+
+    public const int OutOfScopeReplyMaxLength = 500;
+
+    public const string DefaultOutOfScopeReply =
+        "Eso prefiero que te lo responda alguien del equipo. Escríbeles directamente y con gusto te ayudan.";
 
     public const int PersonalityMaxLength = 2_000;
 
@@ -214,6 +253,52 @@ public sealed class AiAgent : Entity
 
         _tools.Clear();
         _tools.AddRange(toolKeys.Distinct(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Replaces the out-of-scope subjects wholesale, same reason <see cref="EnableTools"/>
+    /// does: the screen edits them as one list.
+    ///
+    /// Blank entries are dropped rather than rejected — an empty line left in a textarea
+    /// would otherwise match every message ever sent and silence the assistant completely.
+    /// </summary>
+    public void SetGuardrails(IReadOnlyList<string> topics, string outOfScopeReply)
+    {
+        ArgumentNullException.ThrowIfNull(topics);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outOfScopeReply);
+
+        if (outOfScopeReply.Length > OutOfScopeReplyMaxLength)
+        {
+            throw new ArgumentException(
+                $"The reply must be at most {OutOfScopeReplyMaxLength} characters.", nameof(outOfScopeReply));
+        }
+
+        // Blank entries are dropped rather than rejected. An empty string would match
+        // every message ever sent and silence the assistant completely, so the one thing
+        // it must never become is a topic.
+        var cleaned = topics
+            .Select(topic => topic.Trim())
+            .Where(topic => topic.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (cleaned.Count > MaxBlockedTopics)
+        {
+            throw new ArgumentException($"At most {MaxBlockedTopics} topics can be blocked.", nameof(topics));
+        }
+
+        foreach (var topic in cleaned)
+        {
+            if (topic.Length > BlockedTopicMaxLength)
+            {
+                throw new ArgumentException(
+                    $"A blocked topic must be at most {BlockedTopicMaxLength} characters.", nameof(topics));
+            }
+        }
+
+        _blockedTopics.Clear();
+        _blockedTopics.AddRange(cleaned);
+        OutOfScopeReply = outOfScopeReply.Trim();
     }
 
     /// <summary>
