@@ -30,8 +30,12 @@ public sealed class AuthControllerTests : IClassFixture<TenantsApiFixture>
 
         var meResponse = await TestRequests.SendAsync(client, HttpMethod.Get, "/api/auth/me", cookies);
         Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
-        var me = await meResponse.Content.ReadFromJsonAsync<CurrentUserIdResponse>();
+        var me = await meResponse.Content.ReadFromJsonAsync<CurrentUser>(TestRequests.JsonOptions);
         Assert.Equal(body.UserId, me!.UserId);
+        Assert.Equal(email, me.Email);
+        // Registering creates the organization, so the person who just signed in is
+        // already the Owner of exactly one (ORB-A16).
+        Assert.Single(me.Memberships);
     }
 
     [Fact]

@@ -5,12 +5,17 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
+using Orbita.Application.Media;
+using Orbita.Infrastructure.Media;
 using Orbita.Infrastructure.Persistence;
+using Orbita.IntegrationTests.Ai;
 using Orbita.IntegrationTests.TestSupport;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -58,7 +63,7 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
         await _postgres.StartAsync();
 
         var adminOptions = new DbContextOptionsBuilder<OrbitaDbContext>()
-            .UseNpgsql(_postgres.GetConnectionString())
+            .UseNpgsql(_postgres.GetConnectionString(), npgsql => npgsql.UseVector())
             .Options;
         await using var migrationContext = new OrbitaDbContext(adminOptions, new AmbientTenantContext());
         await migrationContext.Database.MigrateAsync();
@@ -97,6 +102,24 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.AddSingleton<IMetaAuthClient>(new FakeMetaAuthClient());
             services.RemoveAll<IWhatsAppCloudApiClient>();
             services.AddSingleton<IWhatsAppCloudApiClient>(WhatsAppApi);
+
+            // Same reasoning for the model provider: a real one would need Ollama running
+            // or an OpenRouter balance, and would make every assertion flaky.
+            services.RemoveAll<ILlmProvider>();
+            services.AddSingleton<ILlmProvider>(Llm);
+
+            // The background indexer is removed so tests decide when indexing happens.
+            // Left running, it would race every assertion about a document's status.
+            services.RemoveAll<IHostedService>();
+
+            // Uploaded files go to a directory this fixture owns, instead of the shared
+            // media root. Same storage implementation as production (ORB-B06's), only
+            // pointed somewhere disposable.
+            services.RemoveAll<IMediaStorage>();
+            services.AddSingleton<IMediaStorage>(
+                new LocalFileMediaStorage(
+                    Microsoft.Extensions.Options.Options.Create(
+                        new MediaOptions { LocalStoragePath = KnowledgeStorageRoot })));
         });
     }
 
@@ -107,6 +130,13 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
     /// TenantIsolationTests.QueryFilter_OnlyReturnsMembershipsForTheAmbientTenant).
     /// </summary>
     public string GetAdminConnectionString() => _postgres.GetConnectionString();
+
+    /// <summary>The stand-in model provider; tests can script a failure on it.</summary>
+    public FakeLlmProvider Llm { get; } = new();
+
+    /// <summary>Where ORB-C02 uploads land during tests. Removed on teardown.</summary>
+    public string KnowledgeStorageRoot { get; } =
+        Path.Combine(Path.GetTempPath(), "orbita-tests", Guid.NewGuid().ToString("N"));
 
     private string BuildAppConnectionString()
     {

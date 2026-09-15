@@ -1,8 +1,14 @@
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Ai;
 using Orbita.Application.Common;
+using Orbita.Application.Media;
+using Orbita.Infrastructure.Ai;
+using Orbita.Infrastructure.Media;
+using Orbita.Domain.Ai;
 using Orbita.Domain.Audit;
 using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
@@ -39,7 +45,9 @@ public static class DependencyInjection
         {
             var connectionString = serviceProvider.GetRequiredService<IConfiguration>().GetConnectionString("Postgres")
                 ?? throw new InvalidOperationException("Missing 'ConnectionStrings:Postgres' configuration value.");
-            options.UseNpgsql(connectionString);
+            // UseVector wires Npgsql's mapping for pgvector's `vector` type, which
+            // knowledge_chunks.embedding needs (ORB-C02/C03).
+            options.UseNpgsql(connectionString, npgsql => npgsql.UseVector());
         });
 
         services.AddScoped<AmbientTenantContext>();
@@ -72,6 +80,9 @@ public static class DependencyInjection
         services.AddScoped<IPaymentProvider, StripePaymentProvider>();
         services.AddHttpClient<WompiPaymentProvider>();
         services.AddScoped<IPaymentProvider>(sp => sp.GetRequiredService<WompiPaymentProvider>());
+
+        AddLlmProviders(services);
+        AddKnowledgeBase(services);
 
         services.AddHttpContextAccessor();
         services.AddScoped<IRequestContext, HttpRequestContext>();
@@ -106,5 +117,109 @@ public static class DependencyInjection
 
         services.AddOptions<WorkerOptions>().BindConfiguration(WorkerOptions.SectionName);
         services.AddHostedService<ChannelTokenExpiryWorker>();
+    }
+
+    /// <summary>
+    /// ORB-C01. Both adapters are registered under their own concrete types, and
+    /// <see cref="ILlmProvider"/> — what the rest of the application actually resolves —
+    /// is the <see cref="ResilientLlmProvider"/> wrapping them in failover order.
+    /// Registering the adapters as <c>ILlmProvider</c> too would make the wrapper
+    /// resolve itself.
+    ///
+    /// Order is the OpenAI-compatible endpoint first, then Ollama. The hosted gateway is
+    /// the real path: it is what serves the configured models and the only one that can
+    /// produce the 1536-dimension embeddings <c>knowledge_chunks</c> stores. Ollama stays
+    /// registered as ORB-C01's required second implementation and as chat failover, but
+    /// it cannot serve embeddings at this dimension — see
+    /// <c>KnowledgeChunk.EmbeddingDimensions</c>.
+    ///
+    /// An unconfigured provider is skipped rather than tried and failed, so with no API
+    /// key the chain simply has one link.
+    ///
+    /// Both read their configuration inside the client-configuration delegate rather
+    /// than at registration time, for the same reason the connection string does.
+    /// </summary>
+    private static void AddLlmProviders(IServiceCollection services)
+    {
+        // Scoped, not singleton: it reads the tenant's overrides through the unit of work.
+        // The cross-request cache it uses is the singleton IMemoryCache.
+        services.AddMemoryCache();
+        services.AddScoped<ILlmModelSelector, TenantAwareLlmModelSelector>();
+        services.AddSingleton<IModelPreferenceCacheInvalidator, ModelPreferenceCacheInvalidator>();
+        services.AddSingleton<ILlmPricing, ConfigurationLlmPricing>();
+
+        services.AddHttpClient<OllamaLlmProvider>((serviceProvider, client) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            // No default: Ollama is opt-in now that the hosted gateway is the real path.
+            // Left unset it reports IsConfigured = false and the chain skips it, instead
+            // of every call paying a connection timeout to a port nobody is listening on.
+            var baseUrl = configuration["Ai:Providers:ollama:BaseUrl"];
+
+            if (!string.IsNullOrWhiteSpace(baseUrl))
+            {
+                client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+            }
+
+            client.Timeout = LlmRequestTimeout;
+        });
+
+        services.AddHttpClient<OpenAiCompatibleLlmProvider>((serviceProvider, client) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            var baseUrl = configuration["Ai:Providers:openai-compatible:BaseUrl"];
+
+            // Empty by default: the provider reports IsConfigured = false and the
+            // resilience layer skips it, exactly like Stripe/Wompi without credentials.
+            if (!string.IsNullOrWhiteSpace(baseUrl))
+            {
+                client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+            }
+
+            var apiKey = configuration["Ai:Providers:openai-compatible:ApiKey"];
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+
+            client.Timeout = LlmRequestTimeout;
+        });
+
+        services.AddScoped<ILlmProvider>(serviceProvider => new ResilientLlmProvider(
+        [
+            serviceProvider.GetRequiredService<OpenAiCompatibleLlmProvider>(),
+            serviceProvider.GetRequiredService<OllamaLlmProvider>(),
+        ]));
+    }
+
+    /// <summary>Generation is slow; the default 100-second HttpClient timeout cuts long replies off.</summary>
+    private static readonly TimeSpan LlmRequestTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// ORB-C02. The extractors are registered as a set and picked by extension inside
+    /// <c>DocumentChunkBuilder</c> — adding a format is a new class plus a line here,
+    /// never an edit to a switch someone has to remember to update.
+    /// </summary>
+    private static void AddKnowledgeBase(IServiceCollection services)
+    {
+        services.AddScoped<IAiAgentRepository, AiAgentRepository>();
+        services.AddScoped<IAiAgentDraftRepository, AiAgentDraftRepository>();
+        services.AddScoped<IKnowledgeDocumentRepository, KnowledgeDocumentRepository>();
+        services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
+        services.AddScoped<IAiRunRepository, AiRunRepository>();
+        services.AddScoped<ITenantModelPreferenceRepository, TenantModelPreferenceRepository>();
+        services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
+
+        services.AddSingleton<ITextExtractor, PlainTextExtractor>();
+        services.AddSingleton<ITextExtractor, PdfTextExtractor>();
+        services.AddSingleton<ITextExtractor, DocxTextExtractor>();
+
+        // ORB-B06's storage, reused rather than duplicated — see IMediaStorage. The
+        // options section and the lifetime match how Channels registers it, so the two
+        // registrations collapse into one when the branches meet.
+        services.AddOptions<MediaOptions>().BindConfiguration(MediaOptions.SectionName);
+        services.AddScoped<IMediaStorage, LocalFileMediaStorage>();
+
+        services.AddHostedService<KnowledgeIndexingHostedService>();
     }
 }
