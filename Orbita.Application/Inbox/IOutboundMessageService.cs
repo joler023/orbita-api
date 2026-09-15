@@ -31,6 +31,16 @@ public interface IOutboundMessageService
     /// <exception cref="ServiceWindowClosedException">A free-form reply outside the 24h window would be rejected by Meta (131047).</exception>
     Task<MessageDto> SendAgentReplyAsync(Guid tenantId, Guid conversationId, string text, Guid aiRunId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A message the product itself sends, with no person and no model behind it —
+    /// ORB-C06's out-of-scope reply is the first one. Lands with
+    /// <c>authorKind: "System"</c>, which is exactly the case that enum was written for.
+    /// </summary>
+    /// <exception cref="ConversationNotFoundException"/>
+    /// <exception cref="Channels.ChannelNotConnectedException"/>
+    /// <exception cref="ServiceWindowClosedException"/>
+    Task<MessageDto> SendSystemReplyAsync(Guid tenantId, Guid conversationId, string text, CancellationToken cancellationToken);
+
     /// <exception cref="MessageNotFoundException"/>
     /// <exception cref="MessageNotRetryableException">The message isn't Failed, or its error wasn't transient.</exception>
     /// <exception cref="ConversationNotFoundException"/>

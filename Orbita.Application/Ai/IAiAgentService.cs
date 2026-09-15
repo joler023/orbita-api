@@ -66,6 +66,20 @@ public interface IAiAgentService
     /// just to flip a switch. Independent of publishing.
     /// </summary>
     /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
+    /// <summary>
+    /// ORB-C06. Replaces the blocked topics and the out-of-scope reply together, and
+    /// applies them to the live assistant immediately — no draft, no publish.
+    /// </summary>
+    /// <exception cref="AiAgentNotFoundException"/>
+    /// <exception cref="ArgumentException">Too many topics, a topic or the reply too long, or an empty reply.</exception>
+    Task<AiAgentDto> SetGuardrailsAsync(
+        Guid tenantId,
+        Guid callerUserId,
+        Guid agentId,
+        IReadOnlyList<string> blockedTopics,
+        string outOfScopeReply,
+        CancellationToken cancellationToken);
+
     Task<AiAgentDto> SetEnabledAsync(
         Guid tenantId,
         Guid callerUserId,

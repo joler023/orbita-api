@@ -13,6 +13,7 @@ public sealed class AgentConversationResponder(
     ILlmProvider llmProvider,
     IAiRunRecorder runRecorder,
     IOutboundMessageService outboundMessages,
+    Orbita.Application.Outbox.IOutboxWriter outboxWriter,
     Orbita.Domain.Common.IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<AgentConversationResponder> logger) : IAgentConversationResponder
@@ -45,6 +46,16 @@ public sealed class AgentConversationResponder(
         var agent = context.Agent!;
         var incoming = context.Incoming!;
 
+        // ORB-C06, before anything is paid for: an out-of-scope subject, a conversation
+        // that has had enough answers for one window, or a loop all end here.
+        var incomingVerdict = AgentGuardrails.InspectIncoming(
+            agent, incoming, context.RepliesInWindow, context.GuardrailHistory);
+
+        if (!incomingVerdict.IsAllowed)
+        {
+            return await BlockedAsync(tenantId, conversationId, agent, incomingVerdict, cancellationToken);
+        }
+
         var retrieved = await RetrieveAsync(tenantId, agent, incoming, cancellationToken);
 
         var completion = await llmProvider.CompleteAsync(
@@ -71,14 +82,88 @@ public sealed class AgentConversationResponder(
             return AgentReplyOutcome.Skipped(AgentReplyDecision.ModelProducedNoText);
         }
 
+        var replyText = completion.Content.Trim();
+        var replyVerdict = AgentGuardrails.InspectReply(replyText, context.GuardrailHistory);
+
+        if (!replyVerdict.IsAllowed)
+        {
+            // The run is still owed to the ledger: the call was made and it cost money,
+            // whatever we decided to do with what came back.
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            logger.LogWarning(
+                "Guardrail {Reason} blocked the reply on conversation {ConversationId}.",
+                replyVerdict.Reason, conversationId);
+
+            return AgentReplyOutcome.Blocked(replyVerdict.Reason!.Value);
+        }
+
         var reply = await outboundMessages.SendAgentReplyAsync(
-            tenantId, conversationId, completion.Content.Trim(), runId, cancellationToken);
+            tenantId, conversationId, replyText, runId, cancellationToken);
 
         logger.LogInformation(
             "Assistant {AgentId} answered conversation {ConversationId} in {LatencyMs}ms.",
             agent.Id, conversationId, completion.Usage.LatencyMs);
 
         return AgentReplyOutcome.Replied(reply.Id);
+    }
+
+    /// <summary>
+    /// What a blocked message actually does to the conversation.
+    ///
+    /// An out-of-scope subject gets an answer — a short, fixed sentence handing the
+    /// customer to a person. Silence would be the worst outcome of the three: the
+    /// customer asked something the business deliberately does not let a machine answer,
+    /// so leaving them with nothing is exactly the "círculo" ORB-C07 is written against.
+    /// It costs no model call, which is why the check runs before one.
+    ///
+    /// A loop or an exhausted window gets silence instead, and deliberately: both mean
+    /// the assistant has already said too much, so saying one more thing — even an
+    /// apology — is the failure repeating itself one more time.
+    /// </summary>
+    private async Task<AgentReplyOutcome> BlockedAsync(
+        Guid tenantId,
+        Guid conversationId,
+        AiAgent agent,
+        GuardrailVerdict verdict,
+        CancellationToken cancellationToken)
+    {
+        logger.LogInformation(
+            "Guardrail {Reason} stopped assistant {AgentId} on conversation {ConversationId}.",
+            verdict.Reason, agent.Id, conversationId);
+
+        // Every block leaves a record, not just the interesting one. A silenced assistant
+        // is the hardest thing in this product to diagnose from the outside — it does not
+        // error, it just stops answering — so "why did mine go quiet?" needs something to
+        // read in all three cases.
+        //
+        // `topic` is the deliberate exception to the outbox's ids-and-enums rule: it is
+        // free text the owner wrote. It is here because the answer to that question is the
+        // word itself, and an index into a list that changes is useless a week later. It
+        // is the business's own configuration, not a customer's data.
+        await outboxWriter.StageAsync(
+            tenantId,
+            nameof(AiAgent),
+            agent.Id,
+            "agent.reply_blocked",
+            new { conversationId, agentId = agent.Id, reason = verdict.Reason.ToString(), topic = verdict.MatchedTopic },
+            cancellationToken);
+
+        if (verdict.Reason != GuardrailReason.OutOfScopeTopic)
+        {
+            // A loop or an exhausted window gets silence: both mean the assistant has
+            // already said too much, so one more sentence is the failure repeating itself.
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return AgentReplyOutcome.Blocked(verdict.Reason!.Value);
+        }
+
+        // No ai_run: nothing was generated, so there is nothing to bill or to trace. The
+        // sentence is the owner's, not the model's, and Message.OutboundAgentText requires
+        // a run — which is why this goes out as a system message instead.
+        await outboundMessages.SendSystemReplyAsync(
+            tenantId, conversationId, agent.OutOfScopeReply, cancellationToken);
+
+        return AgentReplyOutcome.Blocked(verdict.Reason!.Value);
     }
 
     /// <summary>
@@ -174,6 +259,12 @@ public sealed class AgentConversationResponder(
             var history = await messages.GetRecentByConversationAsync(
                 tenantId, conversationId, MaxHistoryTurns + 1, ct);
 
+            // Counted over the current service window, which is the unit the limit is
+            // about: "how much has this assistant already said in this exchange".
+            var windowStart = timeProvider.GetUtcNow() - Conversation.ServiceWindow;
+            var repliesInWindow = await messages.CountAgentRepliesSinceAsync(
+                tenantId, conversationId, windowStart, ct);
+
             return new ReplyContext(
                 agent,
                 message.Body,
@@ -183,6 +274,7 @@ public sealed class AgentConversationResponder(
                     .Where(m => m.Id != message.Id && !string.IsNullOrWhiteSpace(m.Body))
                     .TakeLast(MaxHistoryTurns)
                     .Select(m => new AgentTurn(m.Direction == MessageDirection.Outbound, m.Body!))],
+                repliesInWindow,
                 SkipReason: null);
         },
         cancellationToken);
@@ -192,8 +284,13 @@ public sealed class AgentConversationResponder(
         AiAgent? Agent,
         string? Incoming,
         IReadOnlyList<AgentTurn> History,
+        int RepliesInWindow,
         AgentReplyDecision? SkipReason)
     {
-        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], decision);
+        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], 0, decision);
+
+        /// <summary>The same turns, in the shape the domain guardrails judge.</summary>
+        public IReadOnlyList<AgentConversationTurn> GuardrailHistory
+            => [.. History.Select(turn => new AgentConversationTurn(turn.FromAssistant, turn.Content))];
     }
 }

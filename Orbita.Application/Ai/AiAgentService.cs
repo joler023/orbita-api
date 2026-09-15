@@ -156,6 +156,25 @@ public sealed class AiAgentService(
         return AiAgentDto.From(agent);
     }
 
+    public async Task<AiAgentDto> SetGuardrailsAsync(
+        Guid tenantId,
+        Guid callerUserId,
+        Guid agentId,
+        IReadOnlyList<string> blockedTopics,
+        string outOfScopeReply,
+        CancellationToken cancellationToken)
+    {
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
+
+        var (agent, draft) = await LoadAsync(tenantId, agentId, cancellationToken);
+
+        // Straight onto the live agent, draft untouched — see AgentGuardrailsDto.
+        agent.SetGuardrails(blockedTopics, outOfScopeReply);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return AiAgentDto.From(agent, draft);
+    }
+
     public async Task<AiAgentDto> SetEnabledAsync(
         Guid tenantId,
         Guid callerUserId,

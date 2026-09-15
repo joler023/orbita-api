@@ -27,11 +27,17 @@ public interface IAgentConversationResponder
 }
 
 /// <summary>Why the assistant stayed quiet, or the reply it produced.</summary>
-public sealed record AgentReplyOutcome(AgentReplyDecision Decision, Guid? MessageId = null)
+public sealed record AgentReplyOutcome(
+    AgentReplyDecision Decision,
+    Guid? MessageId = null,
+    Domain.Ai.GuardrailReason? GuardrailReason = null)
 {
     public static AgentReplyOutcome Replied(Guid messageId) => new(AgentReplyDecision.Replied, messageId);
 
     public static AgentReplyOutcome Skipped(AgentReplyDecision decision) => new(decision);
+
+    public static AgentReplyOutcome Blocked(Domain.Ai.GuardrailReason reason)
+        => new(AgentReplyDecision.BlockedByGuardrail, null, reason);
 }
 
 public enum AgentReplyDecision
@@ -61,4 +67,11 @@ public enum AgentReplyDecision
 
     /// <summary>The model answered with nothing at all — no text to send.</summary>
     ModelProducedNoText,
+
+    /// <summary>
+    /// A guardrail stopped it (ORB-C06). <see cref="AgentReplyOutcome.GuardrailReason"/>
+    /// says which one: an out-of-scope subject the owner declared, too many replies in
+    /// one window, a loop, or a reply that failed validation.
+    /// </summary>
+    BlockedByGuardrail,
 }

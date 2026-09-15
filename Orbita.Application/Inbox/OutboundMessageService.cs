@@ -52,6 +52,22 @@ public sealed class OutboundMessageService(
         return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
     }
 
+    public async Task<MessageDto> SendSystemReplyAsync(Guid tenantId, Guid conversationId, string text, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+
+        // No user and no ai_run: Message.AuthorKind resolves this to System, which is how
+        // the inbox tells it apart from both a person and the assistant.
+        var message = Message.OutboundText(tenantId, conversationId, text, sentByUserId: null, MessageCategory.Service, now);
+        conversation.RegisterOutbound(now, text, isHuman: false);
+
+        return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
+    }
+
     public async Task<MessageDto> SendMediaAsync(Guid tenantId, Guid callerUserId, Guid conversationId, SendMediaRequest request, CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
