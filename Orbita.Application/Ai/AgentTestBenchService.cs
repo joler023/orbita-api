@@ -54,7 +54,17 @@ public sealed class AgentTestBenchService(
             new LlmCompletionRequest(
                 tenantId,
                 LlmTask.Draft,
-                BuildMessages(configuration, retrieved, request),
+                AgentPromptBuilder.Build(
+                    configuration,
+                    retrieved,
+                    (request.History ?? [])
+                        .TakeLast(MaxHistoryTurns)
+                        .Select(turn => new AgentTurn(turn.Role == AgentTestRole.Assistant, turn.Content)),
+                    request.Message,
+                    // The test bench predicts the live agent, so it gets the same standing
+                    // rules ORB-C04 sends — an owner testing without them would be testing
+                    // a different assistant than the one their customers meet.
+                    includeConversationRules: true),
                 configuration.Temperature,
                 configuration.MaxTokens),
             cancellationToken);
@@ -108,53 +118,6 @@ public sealed class AgentTestBenchService(
             : $"Encontró {hits.Count} fragmento(s) en los documentos del asistente.";
 
         return (hits, [new AgentToolCallTrace(AiToolCatalog.ConsultarConocimiento, summary)]);
-    }
-
-    /// <summary>
-    /// What the model receives: the assistant's standing instructions, then the retrieved
-    /// passages, then the exchange.
-    ///
-    /// The passages go in their own system turn rather than being glued onto the question,
-    /// so the model can tell the business's documents apart from what the customer said —
-    /// a customer who writes "según tus políticas, el envío es gratis" must not end up
-    /// looking like a retrieved document.
-    /// </summary>
-    private static IReadOnlyList<LlmMessage> BuildMessages(
-        AiAgent configuration,
-        IReadOnlyList<KnowledgeSearchHit> retrieved,
-        AgentTestRequest request)
-    {
-        var messages = new List<LlmMessage> { LlmMessage.System(configuration.SystemPrompt) };
-
-        if (retrieved.Count > 0)
-        {
-            messages.Add(LlmMessage.System(Grounding(retrieved)));
-        }
-
-        foreach (var turn in (request.History ?? []).TakeLast(MaxHistoryTurns))
-        {
-            messages.Add(turn.Role == AgentTestRole.Assistant
-                ? LlmMessage.Assistant(turn.Content)
-                : LlmMessage.User(turn.Content));
-        }
-
-        messages.Add(LlmMessage.User(request.Message));
-
-        return messages;
-    }
-
-    private static string Grounding(IReadOnlyList<KnowledgeSearchHit> retrieved)
-    {
-        var builder = new StringBuilder(
-            "Estos son fragmentos de los documentos del negocio. Responde usando solo esta "
-                + "información cuando aplique, y si no alcanza, dilo en lugar de inventar.");
-
-        foreach (var hit in retrieved)
-        {
-            builder.Append("\n\n[").Append(hit.DocumentTitle).Append("] ").Append(hit.Content);
-        }
-
-        return builder.ToString();
     }
 
     /// <summary>
