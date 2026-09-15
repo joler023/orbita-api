@@ -6,6 +6,28 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-15 (5)** — **La suite de integración corrió entera por primera vez y está en verde: 512 unitarias + 248 de integración, cero fallos.** Antes de esto nunca se había ejecutado completa (la máquina donde se escribió no tenía Docker), y al correrla aparecieron 21 fallos: 16 ya estaban en `develop`.
+
+Detrás de esos 21 había **ocho bugs reales**, no pruebas mal escritas. Siete de producción:
+
+1. **Ningún envío funcionaba**: `OutboundMessageService` leía `conversations` fuera de scope de tenant → 404 sobre conversaciones existentes.
+2. **El segundo mensaje de cada cliente rompía la ingesta**: `InboundMessageProcessor` igual → contacto duplicado, `ix_contacts_tenant_phone` violado, evento muerto.
+3. **Borrar un asistente daba 500** (FK `RESTRICT` de `ai_runs` sin manejar).
+4. **`MessageTemplateService` devolvía lista vacía siempre**, no detectaba duplicados, y `SyncFromMetaAsync` **duplicaba el catálogo entero en cada corrida**.
+5. **`OutboundMessageDispatchService` moría con `MessageNotFound` en cada intento**: el mensaje se encolaba (202, visible en la bandeja) y nunca salía.
+6. **`MediaService` devolvía 404** en cada URL de subida.
+7. **Cada evento del outbox esperaba 30 segundos antes de su primer intento** — la fórmula de retroceso se aplicaba también al intento inicial (`power(2, 0) = 1`). Medido contra la base real: `message.received` tardaba 38 s. Eso anulaba el tick de 500 ms que ORB-B04 eligió a propósito y hacía **aritméticamente imposible** el criterio de ORB-C04 ("latencia percibida por debajo de 6 s en el p95"), que estaba dado por cumplido sin haberse medido.
+
+Los seis primeros son la misma falla: leer una tabla con RLS fuera de una transacción que fije `app.tenant_id`. Ver CLAUDE.md, "Reads of RLS'd tables must run inside a tenant scope".
+
+Y uno de pruebas que era de nuestro track: **el fixture hacía `RemoveAll<IHostedService>()`** para quitar el indexador de conocimiento (ORB-C02) y de paso borraba **todos** los workers de Track B. Más un octavo: `PipelinesControllerTests` construía su `DbContext` sin `UseVector()`, así que EF no podía armar el modelo.
+
+**Las aserciones tampoco veían lo que el worker escribía**: leían tablas con RLS desde un scope sin tenant. Nuevo `TenantsApiFixture.CreateOwnerDbContext()` para eso, y `TestRequests.ConnectVerifiedWhatsAppAsync()` porque conectar un canal sin completar el handshake de Meta deja la cuenta en `PendingVerification` y todo envío responde 409.
+
+**Lo más importante para no repetir:** una prueba que afirma *ausencia* **pasa** con este bug en vez de fallar. `Results_never_cross_tenants` habría certificado aislamiento entre tenants con la búsqueda completamente rota, porque `Assert.All` sobre colección vacía pasa — y estaba listada en el checklist como logro de ORB-C03. Las tres pruebas de aislamiento de Track C llevan ahora **control positivo antes del negativo**. Lo detectó la sesión del frontend, no nosotros.
+
+Hueco conocido que sigue abierto: no hay cobertura de un reintento manual exitoso (`POST .../messages/{id}/retry` → `Sent`), porque llegar a `Failed` con un error transitorio exige agotar cinco intentos con retroceso de 30 s, 60 s, 120 s. Forzarlo reescribiendo `next_attempt_at` choca con el lock de fila del worker (probado: once minutos y falló igual). Lo que lo destraba es el `MutableTimeProvider` en el host de pruebas — el mismo que ORB-B06 y ORB-B07 anotaron como faltante; ya existe en `Orbita.UnitTests/TestSupport`.
+
 **2026-09-15 (4)** — `fix/agent-delete-with-history`, encima de C04. Borrar un asistente que ya había corrido devolvía **500** (violación de la FK `RESTRICT` de `ai_runs`); ahora devuelve **409** con mensaje en español. Lo destapó la sesión del frontend preguntando qué le pasa a `conversations.ai_agent_id` cuando alguien usa el botón Eliminar de la pantalla 2.5, que ya está construido de su lado. Ver CLAUDE.md, "Borrar un asistente que ya trabajó".
 
 **2026-09-15 (2)** — **Dos bugs serios de Row Level Security, arreglados en `fix/outbound-reads-under-rls`.** Los encontró la primera corrida real contra una base con RLS aplicando de verdad; las pruebas de integración que debían haberlos detectado existían desde B03 y B05, pero nunca se habían ejecutado (sin Docker en aquella máquina).
