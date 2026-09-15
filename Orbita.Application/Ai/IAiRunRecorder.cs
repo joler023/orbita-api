@@ -20,7 +20,13 @@ public interface IAiRunRecorder
     /// anything reaches the database, because it is client-generated like every other
     /// <c>Guid</c> key here.
     /// </summary>
-    Guid Record(Guid tenantId, Guid agentId, LlmUsage usage, Guid? conversationId = null);
+    Guid Record(
+        Guid tenantId,
+        Guid agentId,
+        LlmUsage usage,
+        Guid? conversationId = null,
+        IReadOnlyList<string>? toolsCalled = null,
+        IReadOnlyList<Guid>? retrievedChunkIds = null);
 
     /// <summary>A call that failed still consumed time, and often tokens.</summary>
     void RecordFailure(Guid tenantId, Guid agentId, string model, string error, int? latencyMs, Guid? conversationId = null);

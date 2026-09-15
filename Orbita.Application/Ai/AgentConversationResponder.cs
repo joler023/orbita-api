@@ -94,7 +94,15 @@ public sealed class AgentConversationResponder(
             // Every round is its own paid call and its own run. Staged, not saved:
             // SendAgentReplyAsync's SaveChangesAsync commits the runs, the reply and the
             // queued job together.
-            runId = runRecorder.Record(tenantId, agent.Id, completion.Usage, conversationId);
+            runId = runRecorder.Record(
+                tenantId,
+                agent.Id,
+                completion.Usage,
+                conversationId,
+                toolsCalled: [.. completion.ToolCalls.Select(call => call.Name)],
+                // The passages went into every round's prompt, but they were retrieved
+                // once; recording them on the first run only keeps a sum over runs honest.
+                retrievedChunkIds: round == 0 ? [.. retrieved.Select(hit => hit.ChunkId)] : null);
 
             if (!offerTools || completion.ToolCalls.Count == 0)
             {
