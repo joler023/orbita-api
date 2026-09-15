@@ -144,6 +144,70 @@ Con el entorno en `Development`, la documentación OpenAPI queda disponible vía
 - **Los tests de integración fallan o se cuelgan**: casi siempre es que Docker no está corriendo — Testcontainers necesita el daemon disponible para levantar el Postgres efímero de cada corrida.
 - **Puerto 5432 ya en uso por otro proyecto**: bajar el otro contenedor/servicio o remapear el puerto publicado en `docker-compose.yml`; la app lee el host/puerto desde `ConnectionStrings:Postgres` en `appsettings.Development.json`.
 
+## Usar una base administrada en vez de Docker
+
+Si no querés depender de Docker para tener base de datos (por ejemplo apuntando a
+Neon, que es lo que usa el entorno de desarrollo/integración compartido), el
+cambio es de configuración, no de código:
+
+```bash
+# 1. Una sola vez por base: extensiones y rol dueño.
+#    Se corre con el rol administrador que dé el proveedor.
+psql "<cadena del rol administrador>" -v orbita_password="'<contraseña>'" \
+     -f scripts/init-managed-db.sql
+
+# 2. Migrar como `orbita`, por el endpoint DIRECTO (sin pooler).
+dotnet tool run dotnet-ef database update --project Orbita.Infrastructure \
+    --startup-project Orbita.Api --connection "<cadena de orbita>"
+
+# 3. Apuntar la app al rol de runtime, copiando .env.example a .env y llenando
+#    ConnectionStrings:Postgres con la cadena de `orbita_app`.
+cp .env.example .env
+```
+
+`.env` está en `.gitignore` y le gana a `appsettings.Development.json`, así que
+cada quien apunta su máquina a donde quiera sin tocar archivos versionados.
+
+Dos cosas que no son opcionales:
+
+- **La app se conecta como `orbita_app`, nunca como el rol administrador del
+  proveedor.** En Neon, `neondb_owner` tiene `BYPASSRLS`: usarlo apaga el
+  aislamiento entre organizaciones sin dar ningún error.
+- **Las migraciones van por el endpoint directo, la app por el del pooler.** El
+  pooler (PgBouncer en modo transacción) es compatible con el `SET LOCAL
+  app.tenant_id` que abre `IUnitOfWork` dentro de cada transacción, pero no con
+  una sesión larga de DDL.
+
+Seguís necesitando Docker para `dotnet test`: las pruebas de integración levantan
+su propio Postgres efímero con Testcontainers y no usan esta base.
+
+## Cargar datos de ejemplo
+
+```bash
+psql "<cadena de orbita>" -f scripts/seed-dev.sql
+```
+
+Deja tres organizaciones con equipo, canales, ~1.800 contactos, ~840
+conversaciones con ~20.000 mensajes, tablero comercial, asistentes de IA y su
+base de conocimiento. Corre como el rol **dueño** (`orbita`), porque tiene que
+insertar filas de varias organizaciones en una sola transacción y la RLS no se
+aplica al dueño de la tabla.
+
+Es idempotente: borra sus propias organizaciones por id fijo antes de empezar, y
+no toca ninguna fila que no haya creado él (el catálogo de `plans`, por ejemplo,
+lo siembra una migración y el seed solo lo referencia).
+
+Todas las personas de ejemplo entran con la contraseña `Orbita2026!`:
+
+| Correo | Organización | Rol |
+|---|---|---|
+| `manuela.rios@orbita.demo` | Panadería La Espiga (+ Clínica Sonrisa) | Owner (y Viewer) |
+| `andres.gomez@orbita.demo` | Panadería La Espiga (+ Boutique Marea) | Admin (y Agent) |
+| `valentina.cruz@orbita.demo` | Panadería La Espiga | Agent |
+| `paula.restrepo@orbita.demo` | Panadería La Espiga | Viewer |
+| `carolina.duque@orbita.demo` | Clínica Sonrisa | Owner |
+| `lucia.ferrer@orbita.demo` | Boutique Marea | Owner |
+
 ## Comandos comunes
 
 ```bash
