@@ -12,6 +12,16 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 - **El segundo mensaje de cada cliente rompía la ingesta.** `InboundMessageProcessor` leía `contacts`/`conversations`/`messages` igual, así que la búsqueda de contacto siempre fallaba: creaba un contacto duplicado, violaba `ix_contacts_tenant_phone` y el evento de webhook quedaba muerto. El chequeo de idempotencia por `external_id` estaba inerte por lo mismo.
 
 Hay un miembro nuevo en `IUnitOfWork`, `ExecuteAndSaveInTenantScopeAsync`, para el caso "leer y escribir en la misma transacción con el mismo `app.tenant_id`". Ver CLAUDE.md, sección "Reads of RLS'd tables must run inside a tenant scope". **Ojo al mergear**: agregar un miembro a `IUnitOfWork` rompe toda implementación a mano de la interfaz y git no lo marca como conflicto.
+**2026-09-15 (3)** — `ORB-C04` (el agente responde) en `feature/c04-agent-responds`, la punta del stack (`fix/embedding-model-pricing` → `fix/outbound-reads-under-rls` → esta). Con esto arranca la Épica C2 de Track C, que estaba bloqueada por `ORB-B03` hasta que Track B entró a `develop`.
+
+El asistente se engancha al evento `message.received` del outbox, no a `InboundMessageProcessor`: `AgentReplyIntegrationHandler` es la primera implementación de `IIntegrationEventHandler` en todo el repo — el seam que construyó B04 estaba vacío. Ver CLAUDE.md, sección "El agente responde (ORB-C04)", para las decisiones que no conviene reabrir.
+
+Dos cosas que había que arreglar para que esto funcionara y que no eran evidentes en el plan:
+
+- **`conversations.ai_agent_id` no lo escribía nadie.** La columna existe desde B03 pero ninguna clase la llenaba, así que un agente nunca habría respondido. Ahora `Conversation.AssignAgent` la fija la primera vez que un asistente contesta, y no reasigna nunca (eso es C08).
+- **`openai/text-embedding-3-small` no tenía precio configurado**, así que cada indexación y cada búsqueda se registraban en `ai_runs.cost_usd` como gratis. Va arreglado en la rama de abajo del stack, con una prueba que recorre la configuración que se despacha y falla si algún modelo asignado a una tarea no tiene precio.
+
+Se agregaron dos ayudas de prueba que varias historias venían pidiendo por escrito: `MutableTimeProvider` (el que faltaba para probar expiraciones — B06 y B07 lo dejaron anotado) y `PassThroughUnitOfWork` en `Orbita.UnitTests/TestSupport`.
 
 **2026-09-15** — Hay **base de desarrollo/integración administrada** (Neon, PostgreSQL 18) con las 24 migraciones aplicadas y datos de ejemplo cargados. No reemplaza a Docker: las pruebas de integración siguen levantando su propio Postgres con Testcontainers, esto es para correr la API y para que el frontend tenga contra qué trabajar.
 
