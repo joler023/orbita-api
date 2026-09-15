@@ -22,16 +22,23 @@ public static class AgentPromptBuilder
     ///
     /// The language rule says "the language they wrote in" rather than naming one,
     /// because detecting it costs an extra call and the model is already holding the
-    /// message that proves it.
+    /// message that proves it. It extends to *how* they write: Órbita serves Colombia,
+    /// Mexico and Spain, where tú, vos and usted are not interchangeable, so the rule is
+    /// to mirror the customer rather than pick a register on their behalf.
+    ///
+    /// These instructions are themselves written in tuteo, like every other Spanish
+    /// string this backend produces. That is not cosmetic: a prompt written in voseo
+    /// teaches the model to answer in voseo, to every customer of every tenant.
     /// </summary>
     public const string ConversationRules =
         "Estás respondiendo por chat a un cliente real del negocio.\n"
-        + "- Respondé en el mismo idioma en que te escribió el cliente.\n"
-        + "- Usá solo la información de los documentos del negocio y de esta conversación. "
+        + "- Responde en el mismo idioma en que te escribió el cliente, y trátalo como él "
+        + "te trate: si te habla de tú, de vos o de usted, respóndele igual.\n"
+        + "- Usa solo la información de los documentos del negocio y de esta conversación. "
         + "No inventes precios, horarios, plazos ni políticas.\n"
-        + "- Si no tenés la información para responder, decilo con naturalidad y ofrecé "
+        + "- Si no tienes la información para responder, dilo con naturalidad y ofrece "
         + "pasar la conversación con una persona del equipo.\n"
-        + "- Escribí como en un chat: breve y directo, sin encabezados ni listas largas.";
+        + "- Escribe como en un chat: breve y directo, sin encabezados ni listas largas.";
 
     /// <summary>
     /// The order is load-bearing: standing instructions, then the business's documents,
