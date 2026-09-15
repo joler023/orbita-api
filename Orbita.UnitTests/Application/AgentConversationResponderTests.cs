@@ -167,6 +167,10 @@ public sealed class AgentConversationResponderTests
 
         Assert.Contains("mismo idioma", system, StringComparison.Ordinal);
         Assert.Contains("pasar la conversación con una persona", system, StringComparison.Ordinal);
+
+        // Órbita serves Colombia, Mexico and Spain: the assistant mirrors how the
+        // customer writes instead of imposing one treatment on all three.
+        Assert.Contains("de tú, de vos o de usted", system, StringComparison.Ordinal);
         Assert.Contains("Abrimos de 7 a.m. a 7 p.m.", system, StringComparison.Ordinal);
 
         // The message being answered is the last turn, and it appears exactly once even
