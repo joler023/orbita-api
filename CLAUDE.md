@@ -270,6 +270,17 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - "Ninguna respuesta contiene datos de otro cliente" is not a filter here, deliberately: retrieval is scoped by tenant and agent under RLS, so it is enforced by construction and proven by the isolation tests (which carry a positive control — see HANDOFF).
 - Limits: 50 topics, 120 chars each, trimmed, blanks dropped (an empty topic would match every message), duplicates dropped case-insensitively.
 
+### El agente ejecuta acciones (ORB-C05)
+
+`AgentToolExecutor` is the only place a model's arguments become a change in the CRM. `AgentConversationResponder` offers the agent's enabled tools, runs what the model asks for, sends the results back, and asks again — at most `MaxToolRounds` (3) rounds with tools, then one final call with **no tools offered**, so the customer always gets text and one reply costs at most four model calls.
+
+- **Tools act only on what the conversation fixes, never on ids the model supplies.** `AgentToolContext` carries tenant, agent, contact and conversation; `crear_oportunidad` always uses the tenant's default pipeline and first stage for that contact, `mover_etapa` moves that contact's most recent *open* opportunity (not on a won/lost stage) to a stage **by name**. The model knows the words on the board, not the ids — and an id it supplied would be the one path to another tenant's record. `An_assistant_cannot_create_anything_in_another_tenant` names the victim tenant in the arguments and asserts nothing lands there (with a positive control first).
+- **`IOpportunityService.CreateForAgentAsync` / `MoveContactOpportunityForAgentAsync`** are the agent entry points: no permission check (the actor isn't a person — what authorizes it is the tool being enabled on the agent), audited through `RecordSystemActionAsync` with `actor_type = AiAgent` and the `agentId` in the diff.
+- **A failing tool never breaks the reply.** Bad arguments, a missing stage, or an exception all become `AgentToolResult(Succeeded: false)` with a Spanish sentence the model can relay; internal error text never reaches the model or the customer.
+- **`LlmMessage.AssistantToolCalls` + `tool_calls` on the OpenAI wire** were missing from ORB-C01: the chat format rejects a `tool` message that doesn't answer a `tool_calls` entry in the turn before it, so the second round of any tool loop would have failed against a real provider while passing every fake. Known gap: the Ollama adapter does not echo `tool_calls` yet (it has no configured `BaseUrl` in this deployment).
+- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
+- Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
