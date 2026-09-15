@@ -239,7 +239,9 @@ La FK es `RESTRICT` a propósito y no se cambia: `ai_runs` es el libro de consum
 
 Ahora `AiAgentService.DeleteAsync` pregunta primero (`IAiRunRepository.ExistsForAgentAsync`) y lanza `AgentHasHistoryException` → **409**, con un mensaje en español que el dashboard puede mostrar tal cual. Borrar sigue disponible para el caso que de verdad sirve —un asistente creado por error, que nunca atendió a nadie—; para todo lo demás ORB-C10 ya tenía el verbo correcto, `PATCH .../enabled`.
 
-Esto también cierra, sin necesitar una columna, la pregunta de qué pasa con `conversations.ai_agent_id` cuando se borra un asistente: esa columna **no tiene** clave foránea, así que un borrado dejaría el id colgando y el hilo sin poder decir quién contestó. Como un asistente solo llega a quedar asignado a una conversación después de responder —y responder siempre escribe un `ai_run`—, la misma guarda impide que eso ocurra.
+`conversations.ai_agent_id` **ahora sí tiene clave foránea** (`AddConversationAgentForeignKey`, `RESTRICT`). El DBML la declaraba desde siempre (`Ref: conversations.ai_agent_id > ai_agents.id`) y faltaba en el modelo de EF; hasta ORB-C04 daba igual, porque nadie escribía esa columna. La guarda de 409 y la clave foránea dicen lo mismo a propósito: la primera da un error que se puede mostrar, la segunda lo hace cumplir para cualquier otro camino que asigne un asistente a una conversación —el enrutador de ORB-C08, cuando exista— sin depender de que ese código se acuerde.
+
+**El registro del español importa y se revisa.** Todo texto en español que produce el backend está en tuteo, incluidas las reglas que ORB-C04 le manda al modelo. No es cosmético: un prompt escrito en voseo le enseña al modelo a contestar en voseo, a los clientes de todos los tenants — y Órbita atiende Colombia, México y España, donde tú, vos y usted no son intercambiables. La regla que se le da al modelo es **espejar al cliente**, no elegir un trato por él.
 
 ### El agente responde (ORB-C04)
 
