@@ -132,9 +132,9 @@ public sealed class AgentConversationResponder(
 
             var conversation = await conversations.GetByIdAsync(conversationId, ct);
 
-            if (conversation?.AiAgentId is not { } agentId)
+            if (conversation is null)
             {
-                return ReplyContext.Skip(AgentReplyDecision.NoAgentAssigned);
+                return ReplyContext.Skip(AgentReplyDecision.ConversationGone);
             }
 
             // ORB-C07 is what makes a handoff explicit and permanent. Until it exists,
@@ -151,7 +151,11 @@ public sealed class AgentConversationResponder(
                 return ReplyContext.Skip(AgentReplyDecision.ServiceWindowClosed);
             }
 
-            var agent = await agents.GetByIdAsync(tenantId, agentId, ct);
+            // A conversation keeps whichever assistant first answered it; one that has
+            // none yet gets the tenant's enabled assistant, and records that choice.
+            var agent = conversation.AiAgentId is { } assigned
+                ? await agents.GetByIdAsync(tenantId, assigned, ct)
+                : await agents.FindEnabledByTenantAsync(tenantId, ct);
 
             if (agent is null)
             {
@@ -162,6 +166,10 @@ public sealed class AgentConversationResponder(
             {
                 return ReplyContext.Skip(AgentReplyDecision.AgentDisabled);
             }
+
+            // Tracked by the same DbContext the reply is saved through, so the assignment
+            // and the reply commit together or not at all.
+            conversation.AssignAgent(agent.Id);
 
             var history = await messages.GetRecentByConversationAsync(
                 tenantId, conversationId, MaxHistoryTurns + 1, ct);

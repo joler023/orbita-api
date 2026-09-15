@@ -44,7 +44,10 @@ public enum AgentReplyDecision
     /// <summary>Nothing to answer: an image with no caption, for instance.</summary>
     NothingToAnswer,
 
-    /// <summary>The conversation has no assistant assigned.</summary>
+    /// <summary>The event pointed at a conversation that no longer exists.</summary>
+    ConversationGone,
+
+    /// <summary>Neither the conversation nor the tenant has an enabled assistant.</summary>
     NoAgentAssigned,
 
     /// <summary>The assistant exists but the owner switched it off (ORB-C10).</summary>
