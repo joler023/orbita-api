@@ -19,4 +19,7 @@ public interface IAiRunRepository
     /// violation — a 500 on a button the configuration screen offers.
     /// </summary>
     Task<bool> ExistsForAgentAsync(Guid tenantId, Guid agentId, CancellationToken cancellationToken);
+
+    /// <summary>How many of this assistant's runs finished with this reason — ORB-C12's hit rate reads it.</summary>
+    Task<int> CountByFinishReasonAsync(Guid tenantId, Guid agentId, string finishReason, CancellationToken cancellationToken);
 }
