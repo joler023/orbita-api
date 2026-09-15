@@ -148,12 +148,11 @@ public sealed class PipelinesControllerTests : IClassFixture<TenantsApiFixture>
 
     private async Task SeedOpportunityAsync(Guid tenantId, Guid pipelineId, Guid stageId)
     {
-        var tenantContext = new AmbientTenantContext();
-        tenantContext.SetTenant(tenantId);
-        var options = new DbContextOptionsBuilder<OrbitaDbContext>()
-            .UseNpgsql(_fixture.GetAdminConnectionString())
-            .Options;
-        await using var dbContext = new OrbitaDbContext(options, tenantContext);
+        // Through the fixture's helper, which remembers UseVector(). Building the options
+        // by hand here left it out, and EF then refuses to build the model at all —
+        // knowledge_chunks.embedding has no mapping without it. The failure names a Track C
+        // column in a Track D test, which is why it took a while to place.
+        await using var dbContext = _fixture.CreateOwnerDbContext(tenantId);
         dbContext.Opportunities.Add(Opportunity.Create(tenantId, pipelineId, stageId, "Sitio web", 500m, DateTimeOffset.UtcNow));
         await dbContext.SaveChangesAsync();
     }
