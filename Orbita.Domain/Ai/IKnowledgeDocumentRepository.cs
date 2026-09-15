@@ -21,4 +21,10 @@ public interface IKnowledgeDocumentRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A cheap summary of an assistant's documents — how many, and the latest moment any
+    /// was created or finished indexing. ORB-C12 folds it into a cache entry's fingerprint,
+    /// so uploading, reindexing or deleting a document retires every answer given before.
+    /// </summary>
+    Task<(int Count, DateTimeOffset? LatestChange)> SummarizeForAgentAsync(Guid tenantId, Guid agentId, CancellationToken cancellationToken);
 }

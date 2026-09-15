@@ -144,6 +144,17 @@ public sealed class AiAgent : Entity
     /// </summary>
     public BusinessHours? BusinessHours { get; private set; }
 
+    /// <summary>
+    /// How similar a question must be to reuse an earlier answer (ORB-C12), as cosine
+    /// similarity. Null means the cache is off — the default, because reusing answers is a
+    /// trade an owner should choose, not discover.
+    /// </summary>
+    public decimal? SemanticCacheThreshold { get; private set; }
+
+    public const decimal MinSemanticCacheThreshold = 0.80m;
+
+    public const decimal MaxSemanticCacheThreshold = 0.99m;
+
     public bool IsEnabled { get; private set; }
 
     public DateTimeOffset CreatedAt { get; }
@@ -268,6 +279,22 @@ public sealed class AiAgent : Entity
     /// Blank entries are dropped rather than rejected — an empty line left in a textarea
     /// would otherwise match every message ever sent and silence the assistant completely.
     /// </summary>
+    /// <summary>
+    /// Below 0.80, "similar" starts meaning "about the same topic", and a customer asking
+    /// about Sunday hours would get the answer to Saturday's. Above 0.99 it never hits.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"/>
+    public void SetSemanticCacheThreshold(decimal? threshold)
+    {
+        if (threshold is { } value && (value < MinSemanticCacheThreshold || value > MaxSemanticCacheThreshold))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(threshold), $"The threshold must be between {MinSemanticCacheThreshold} and {MaxSemanticCacheThreshold}.");
+        }
+
+        SemanticCacheThreshold = threshold;
+    }
+
     public void SetBusinessHours(BusinessHours? businessHours) => BusinessHours = businessHours;
 
     public void SetGuardrails(IReadOnlyList<string> topics, string outOfScopeReply)
