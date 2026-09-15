@@ -61,6 +61,7 @@ public static class DependencyInjection
         // ORB-C04. Registered as IIntegrationEventHandler too, which is what actually
         // starts the assistant: the outbox dispatcher resolves every handler of that
         // interface and fans `message.received` out to them.
+        services.AddScoped<IAgentToolExecutor, AgentToolExecutor>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
 

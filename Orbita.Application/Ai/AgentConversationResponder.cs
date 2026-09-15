@@ -14,6 +14,7 @@ public sealed class AgentConversationResponder(
     IAiRunRecorder runRecorder,
     IOutboundMessageService outboundMessages,
     Orbita.Application.Outbox.IOutboxWriter outboxWriter,
+    IAgentToolExecutor toolExecutor,
     Orbita.Domain.Common.IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<AgentConversationResponder> logger) : IAgentConversationResponder
@@ -25,6 +26,14 @@ public sealed class AgentConversationResponder(
     /// future reply with it.
     /// </summary>
     public const int MaxHistoryTurns = 20;
+
+    /// <summary>
+    /// How many rounds of tool calls one reply may take (ORB-C06's "límite de
+    /// iteraciones"). Past it, the model is asked once more with no tools offered, so the
+    /// customer always gets an answer instead of an assistant stuck calling tools — and the
+    /// cost of one reply stays bounded at <c>MaxToolRounds + 1</c> model calls.
+    /// </summary>
+    public const int MaxToolRounds = 3;
 
     public async Task<AgentReplyOutcome> RespondAsync(
         Guid tenantId,
@@ -58,19 +67,56 @@ public sealed class AgentConversationResponder(
 
         var retrieved = await RetrieveAsync(tenantId, agent, incoming, cancellationToken);
 
-        var completion = await llmProvider.CompleteAsync(
-            new LlmCompletionRequest(
-                tenantId,
-                LlmTask.Draft,
-                AgentPromptBuilder.Build(agent, retrieved, context.History, incoming, includeConversationRules: true),
-                agent.Temperature,
-                agent.MaxTokens),
-            cancellationToken);
+        var messages = AgentPromptBuilder
+            .Build(agent, retrieved, context.History, incoming, includeConversationRules: true)
+            .ToList();
+        var tools = toolExecutor.DefinitionsFor(agent);
+        var toolContext = new AgentToolContext(tenantId, agent.Id, context.ContactId, conversationId);
 
-        // Staged, not saved: SendAgentReplyAsync's own SaveChangesAsync is what commits
-        // this run, the reply and the queued job together. A run that outlived a failed
-        // send would bill for an answer the customer never got.
-        var runId = runRecorder.Record(tenantId, agent.Id, completion.Usage, conversationId);
+        LlmCompletionResult completion;
+        Guid runId;
+        var round = 0;
+
+        while (true)
+        {
+            var offerTools = tools.Count > 0 && round < MaxToolRounds;
+
+            completion = await llmProvider.CompleteAsync(
+                new LlmCompletionRequest(
+                    tenantId,
+                    LlmTask.Draft,
+                    messages,
+                    agent.Temperature,
+                    agent.MaxTokens,
+                    offerTools ? tools : null),
+                cancellationToken);
+
+            // Every round is its own paid call and its own run. Staged, not saved:
+            // SendAgentReplyAsync's SaveChangesAsync commits the runs, the reply and the
+            // queued job together.
+            runId = runRecorder.Record(tenantId, agent.Id, completion.Usage, conversationId);
+
+            if (!offerTools || completion.ToolCalls.Count == 0)
+            {
+                break;
+            }
+
+            // The assistant turn that asked for the tools goes back first — the chat format
+            // rejects a tool result that does not answer a call from the turn before it.
+            messages.Add(LlmMessage.AssistantToolCalls(completion.ToolCalls));
+
+            foreach (var call in completion.ToolCalls)
+            {
+                var result = await toolExecutor.ExecuteAsync(toolContext, call, cancellationToken);
+                messages.Add(LlmMessage.Tool(call.Id, result.ResultJson));
+
+                logger.LogInformation(
+                    "Assistant {AgentId} called {Tool} on conversation {ConversationId}: {Outcome}.",
+                    agent.Id, call.Name, conversationId, result.Succeeded ? "ok" : "failed");
+            }
+
+            round++;
+        }
 
         if (string.IsNullOrWhiteSpace(completion.Content))
         {
@@ -275,6 +321,7 @@ public sealed class AgentConversationResponder(
                     .TakeLast(MaxHistoryTurns)
                     .Select(m => new AgentTurn(m.Direction == MessageDirection.Outbound, m.Body!))],
                 repliesInWindow,
+                conversation.ContactId,
                 SkipReason: null);
         },
         cancellationToken);
@@ -285,9 +332,10 @@ public sealed class AgentConversationResponder(
         string? Incoming,
         IReadOnlyList<AgentTurn> History,
         int RepliesInWindow,
+        Guid ContactId,
         AgentReplyDecision? SkipReason)
     {
-        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], 0, decision);
+        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], 0, Guid.Empty, decision);
 
         /// <summary>The same turns, in the shape the domain guardrails judge.</summary>
         public IReadOnlyList<AgentConversationTurn> GuardrailHistory
