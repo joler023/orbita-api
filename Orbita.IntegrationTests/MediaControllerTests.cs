@@ -72,10 +72,10 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
 
     private async Task<Guid> ConnectAndReceiveInboundAsync(HttpClient client, Guid tenantId, CookieJar cookies)
     {
-        var connectRequest = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var connectResponse = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, connectRequest);
-        connectResponse.EnsureSuccessStatusCode();
-        var account = (await connectResponse.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
+        // Connect *and* verify: a freshly connected account stays
+        // PendingVerification until Meta calls the callback back, and an
+        // unverified account refuses every send.
+        var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         var body = TextMessagePayload(account.ExternalId, "573009998877", externalId, "hola");
@@ -84,8 +84,7 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
         Guid conversationId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message is null)
             {

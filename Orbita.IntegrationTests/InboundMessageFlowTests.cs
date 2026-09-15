@@ -39,13 +39,11 @@ public sealed class InboundMessageFlowTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             return await dbContext.Messages.AnyAsync(m => m.ExternalId == externalId);
         });
 
-        using var verifyScope = _fixture.Services.CreateScope();
-        var db = verifyScope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var db = _fixture.CreateOwnerDbContext();
         var message = await db.Messages.AsNoTracking().SingleAsync(m => m.ExternalId == externalId);
         var conversation = await db.Conversations.AsNoTracking().SingleAsync(c => c.Id == message.ConversationId);
         var contact = await db.Contacts.AsNoTracking().SingleAsync(c => c.Id == conversation.ContactId);
@@ -68,8 +66,7 @@ public sealed class InboundMessageFlowTests : IClassFixture<TenantsApiFixture>
         await SendWebhookAsync(client, body);
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             return await dbContext.Messages.CountAsync(m => m.ExternalId == externalId) == 1;
         });
 
@@ -80,8 +77,7 @@ public sealed class InboundMessageFlowTests : IClassFixture<TenantsApiFixture>
         await SendWebhookAsync(client, body, "wamid.wrapper-2");
 
         await Task.Delay(TimeSpan.FromSeconds(3));
-        using var verifyScope = _fixture.Services.CreateScope();
-        var db = verifyScope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var db = _fixture.CreateOwnerDbContext();
         Assert.Equal(1, await db.Messages.CountAsync(m => m.ExternalId == externalId));
     }
 
@@ -129,11 +125,8 @@ public sealed class InboundMessageFlowTests : IClassFixture<TenantsApiFixture>
             }
             """);
 
-    private static async Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
-    {
-        var request = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var response = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, request);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
-    }
+    private Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
+        // Connect *and* verify: without the handshake the account stays
+        // PendingVerification and every send is refused. See the helper.
+        => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 }

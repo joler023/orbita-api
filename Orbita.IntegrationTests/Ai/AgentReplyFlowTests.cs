@@ -56,8 +56,7 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
         Assert.Null(reply.SentByUserId);
         Assert.NotNull(reply.AiRunId);
 
-        using var scope = _fixture.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var db = _fixture.CreateOwnerDbContext();
 
         var conversation = await db.Conversations.AsNoTracking().SingleAsync(c => c.Id == reply.ConversationId);
         Assert.Equal(agentId, conversation.AiAgentId);
@@ -89,8 +88,7 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
         // asserts "decided not to answer" rather than "has not answered yet".
         await Task.Delay(TimeSpan.FromSeconds(3));
 
-        using var scope = _fixture.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var db = _fixture.CreateOwnerDbContext();
 
         Assert.False(await db.Messages.AnyAsync(m =>
             m.ConversationId == inbound.ConversationId && m.Direction == MessageDirection.Outbound));
@@ -114,8 +112,7 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var db = _fixture.CreateOwnerDbContext();
             return await db.KnowledgeChunks.AnyAsync(c => c.TenantId == tenantId);
         });
 
@@ -148,8 +145,7 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var db = _fixture.CreateOwnerDbContext();
 
             reply = await db.Messages
                 .AsNoTracking()
@@ -168,8 +164,7 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var db = _fixture.CreateOwnerDbContext();
             inbound = await db.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
 
             return inbound is not null;
@@ -197,14 +192,10 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
         return agentId;
     }
 
-    private static async Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
-    {
-        var request = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var response = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, request);
-        response.EnsureSuccessStatusCode();
-
-        return (await response.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
-    }
+    private Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
+        // Connect *and* verify: without the handshake the account stays
+        // PendingVerification and every send is refused. See the helper.
+        => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 
     private static async Task SendWebhookAsync(HttpClient client, byte[] body)
     {

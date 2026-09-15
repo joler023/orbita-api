@@ -41,8 +41,7 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
         Guid messageId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message?.MediaKey is null)
             {
@@ -76,8 +75,7 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
         Guid conversationId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message is null)
             {
@@ -101,8 +99,7 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             return await dbContext.Messages.AnyAsync(m => m.Id == dto!.Id && m.Status == MessageStatus.Sent);
         });
 

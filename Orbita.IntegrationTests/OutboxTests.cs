@@ -41,8 +41,7 @@ public sealed class OutboxTests : IClassFixture<TenantsApiFixture>
         Assert.DoesNotContain("hola", messageEvent.PayloadJson);
         Assert.DoesNotContain("573009998877", messageEvent.PayloadJson);
 
-        using var scope = _fixture.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var dbContext = _fixture.CreateOwnerDbContext();
         await Eventually.AssertAsync(async () =>
             await dbContext.Set<Orbita.Domain.Outbox.OutboxEvent>().AnyAsync(e => e.Id == messageEvent.Id && e.PublishedAt != null));
     }
@@ -50,6 +49,9 @@ public sealed class OutboxTests : IClassFixture<TenantsApiFixture>
     [Fact]
     public async Task OrbitaApp_CannotDeleteOutboxRows()
     {
+        // The app's own role, deliberately — the whole point is that `orbita_app` has
+        // DELETE revoked on this table. The owner would delete happily, which is exactly
+        // why the append-only guarantee has to be checked through the runtime role.
         using var scope = _fixture.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
 
@@ -94,11 +96,8 @@ public sealed class OutboxTests : IClassFixture<TenantsApiFixture>
             }
             """);
 
-    private static async Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
-    {
-        var request = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var response = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, request);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
-    }
+    private Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
+        // Connect *and* verify: without the handshake the account stays
+        // PendingVerification and every send is refused. See the helper.
+        => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 }
