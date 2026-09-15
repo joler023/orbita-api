@@ -325,7 +325,7 @@ public sealed class AgentTestBenchServiceTests
 
         await RunAsync(agent);
 
-        _runs.Verify(r => r.Record(_tenantId, agent.Id, Usage, null), Times.Once);
+        _runs.Verify(r => r.Record(_tenantId, agent.Id, Usage, null, It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()), Times.Once);
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public sealed class AgentTestBenchServiceTests
         await Assert.ThrowsAsync<LlmProviderException>(() => RunAsync(Live()));
 
         _runs.Verify(
-            r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>()),
+            r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()),
             Times.Never);
     }
 

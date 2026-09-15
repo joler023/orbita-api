@@ -45,7 +45,7 @@ public sealed class AgentConversationResponderTests
             .ReturnsAsync(new LlmCompletionResult("Sí, abrimos hasta las 7.", [], Usage));
 
         _runs
-            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>()))
+            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()))
             .Returns(_runId);
 
         _search
@@ -162,7 +162,7 @@ public sealed class AgentConversationResponderTests
 
         // Without the conversation id the run exists but ORB-A13 cannot attribute it, and
         // ORB-D11's "desglose por agente" has nothing to group by.
-        _runs.Verify(r => r.Record(_tenantId, agent.Id, It.IsAny<LlmUsage>(), conversation.Id), Times.Once);
+        _runs.Verify(r => r.Record(_tenantId, agent.Id, It.IsAny<LlmUsage>(), conversation.Id, It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()), Times.Once);
     }
 
     [Fact]
@@ -297,7 +297,7 @@ public sealed class AgentConversationResponderTests
         var outcome = await RespondAsync(conversation, inbound);
 
         Assert.Equal(AgentReplyDecision.ModelProducedNoText, outcome.Decision);
-        _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>()), Times.Once);
+        _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()), Times.Once);
         Assert.Equal(1, _unitOfWork.SaveCount);
         _outbound.Verify(
             o => o.SendAgentReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
@@ -411,7 +411,7 @@ public sealed class AgentConversationResponderTests
             call, It.IsAny<CancellationToken>()), Times.Once);
 
         // Two paid calls, two runs.
-        _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), conversation.Id), Times.Exactly(2));
+        _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), conversation.Id, It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -438,6 +438,40 @@ public sealed class AgentConversationResponderTests
         Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
         Assert.Equal(AgentConversationResponder.MaxToolRounds + 1, requests.Count);
         Assert.Null(requests[^1].Tools);
+    }
+
+    [Fact]
+    public async Task Each_run_records_the_tools_it_called_and_the_fragments_it_used()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("quiero una torta");
+        _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>())).Returns([new LlmTool(AiToolCatalog.CrearOportunidad, "crea", "{}")]);
+
+        var call = new LlmToolCall("call_1", AiToolCatalog.CrearOportunidad, """{"titulo":"Torta"}""");
+        _llm.SetupSequence(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmCompletionResult(null, [call], Usage))
+            .ReturnsAsync(new LlmCompletionResult("Listo.", [], Usage));
+        _tools
+            .Setup(t => t.ExecuteAsync(It.IsAny<AgentToolContext>(), It.IsAny<LlmToolCall>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentToolResult(AiToolCatalog.CrearOportunidad, true, """{"ok":true}"""));
+
+        var recorded = new List<(IReadOnlyList<string>? Tools, IReadOnlyList<Guid>? Chunks)>();
+        _runs
+            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()))
+            .Callback((Guid _, Guid _, LlmUsage _, Guid? _, IReadOnlyList<string>? tools, IReadOnlyList<Guid>? chunks) => recorded.Add((tools, chunks)))
+            .Returns(_runId);
+
+        await RespondAsync(conversation, inbound);
+
+        // ORB-C09: "cada ejecución escribe... herramientas invocadas". One run per call, so
+        // the tools belong to the call that asked for them.
+        Assert.Equal(2, recorded.Count);
+        Assert.Equal([AiToolCatalog.CrearOportunidad], recorded[0].Tools!);
+        Assert.Empty(recorded[1].Tools!);
+
+        // Retrieved once, recorded once — a sum over runs must not double-count it.
+        Assert.Single(recorded[0].Chunks!);
+        Assert.Null(recorded[1].Chunks);
     }
 
     /// <summary>
