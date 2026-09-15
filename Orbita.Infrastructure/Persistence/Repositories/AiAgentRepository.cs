@@ -12,6 +12,12 @@ public sealed class AiAgentRepository(OrbitaDbContext dbContext) : IAiAgentRepos
     public Task<AiAgent?> GetByIdAsync(Guid tenantId, Guid agentId, CancellationToken cancellationToken)
         => dbContext.AiAgents.SingleOrDefaultAsync(a => a.Id == agentId && a.TenantId == tenantId, cancellationToken);
 
+    public Task<AiAgent?> FindEnabledByTenantAsync(Guid tenantId, CancellationToken cancellationToken)
+        => dbContext.AiAgents
+            .Where(a => a.TenantId == tenantId && a.IsEnabled)
+            .OrderBy(a => a.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<AiAgent>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken)
         => await dbContext.AiAgents
             .Where(a => a.TenantId == tenantId)
