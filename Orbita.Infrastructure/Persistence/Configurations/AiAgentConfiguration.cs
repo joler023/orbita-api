@@ -7,6 +7,11 @@ namespace Orbita.Infrastructure.Persistence.Configurations;
 
 public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
 {
+    private static readonly System.Text.Json.JsonSerializerOptions BusinessHoursJson = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
     public void Configure(EntityTypeBuilder<AiAgent> builder)
     {
         builder.ToTable("ai_agents");
@@ -58,6 +63,21 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
             .HasColumnName("out_of_scope_reply")
             .HasMaxLength(AiAgent.OutOfScopeReplyMaxLength)
             .IsRequired();
+
+        // ORB-C08: orbita-schema.dbml's ai_agents.business_hours jsonb. Nullable = always on.
+        // A value converter rather than an owned JSON type: BusinessHours is a positional
+        // record, and EF binds owned types through constructors it cannot satisfy for one.
+        // The column stays the jsonb the DBML specifies either way.
+        builder.Property(a => a.BusinessHours)
+            .HasColumnName("business_hours")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                hours => hours == null ? null : System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson),
+                json => string.IsNullOrEmpty(json) ? null : System.Text.Json.JsonSerializer.Deserialize<BusinessHours>(json, BusinessHoursJson),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<BusinessHours?>(
+                    (left, right) => System.Text.Json.JsonSerializer.Serialize(left, BusinessHoursJson) == System.Text.Json.JsonSerializer.Serialize(right, BusinessHoursJson),
+                    hours => System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson).GetHashCode(),
+                    hours => hours == null ? null : System.Text.Json.JsonSerializer.Deserialize<BusinessHours>(System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson), BusinessHoursJson)));
 
         builder.Property(a => a.IsEnabled).HasColumnName("is_enabled").IsRequired();
         builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired();
