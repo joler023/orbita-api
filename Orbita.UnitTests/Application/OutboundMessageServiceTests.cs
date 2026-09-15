@@ -26,7 +26,7 @@ public sealed class OutboundMessageServiceTests
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
     private readonly Mock<IMediaUrlSigner> _mediaUrlSigner = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
-    private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly OutboundMessageService _sut;
 
     public OutboundMessageServiceTests()
@@ -40,7 +40,7 @@ public sealed class OutboundMessageServiceTests
             _outboxWriter.Object,
             _mediaUrlSigner.Object,
             _authorization.Object,
-            _unitOfWork.Object,
+            _unitOfWork,
             new FixedTimeProvider(Now));
     }
 
@@ -61,7 +61,7 @@ public sealed class OutboundMessageServiceTests
         _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Once);
         _outboundQueue.Verify(q => q.EnqueueAsync(It.Is<OutboundMessageJob>(j => j.ChannelAccountId == account.Id), It.IsAny<CancellationToken>()), Times.Once);
         _outboxWriter.Verify(w => w.StageAsync(TenantId, nameof(Message), It.IsAny<Guid>(), "message.queued", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.SaveCount);
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public sealed class OutboundMessageServiceTests
         Assert.Equal(MessageStatus.Queued, result.Status);
         _outboundQueue.Verify(q => q.EnqueueAsync(It.Is<OutboundMessageJob>(j => j.ChannelAccountId == account.Id), It.IsAny<CancellationToken>()), Times.Once);
         _outboxWriter.Verify(w => w.StageAsync(TenantId, nameof(Message), message.Id, "message.queued", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.SaveCount);
     }
 
     [Fact]

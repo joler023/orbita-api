@@ -26,7 +26,8 @@ public sealed class InboundMessageProcessorTests
     private readonly Mock<IMessageRepository> _messages = new();
     private readonly Mock<IMediaStorage> _mediaStorage = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
-    private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly PassThroughUnitOfWork _unitOfWork = new();
+
     private readonly InboundMessageProcessor _sut;
 
     public InboundMessageProcessorTests()
@@ -51,7 +52,7 @@ public sealed class InboundMessageProcessorTests
             _messages.Object,
             _mediaStorage.Object,
             _outboxWriter.Object,
-            _unitOfWork.Object,
+            _unitOfWork,
             new FixedTimeProvider(Now),
             NullLogger<InboundMessageProcessor>.Instance);
     }
@@ -66,7 +67,7 @@ public sealed class InboundMessageProcessorTests
         _contacts.Verify(c => c.AddAsync(It.Is<Contact>(x => x.Phone == "573001234567" && x.DisplayName == "Ana"), It.IsAny<CancellationToken>()), Times.Once);
         _conversations.Verify(c => c.AddAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>()), Times.Once);
         _messages.Verify(m => m.AddAsync(It.Is<Message>(x => x.ExternalId == "wamid.1" && x.Body == "hola"), It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.TenantScopedSaveCount);
     }
 
     [Fact]
@@ -110,7 +111,7 @@ public sealed class InboundMessageProcessorTests
 
         Assert.Null(exception);
         _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Never);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.TenantScopedSaveCount);
     }
 
     [Fact]
@@ -171,7 +172,7 @@ public sealed class InboundMessageProcessorTests
 
         await _sut.ProcessAsync(CreateEvent(), CancellationToken.None);
 
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.TenantScopedSaveCount);
         _messages.Verify(m => m.AddAsync(It.IsAny<Message>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
