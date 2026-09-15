@@ -61,35 +61,59 @@ public sealed class MessageStatusTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
-    public async Task Retry_FailedTransient_RequeuesAndSends()
+    public async Task A_transient_failure_schedules_a_retry_instead_of_failing()
     {
+        // ORB-B05 classifies 130429 as transient, and transient means "try again", not
+        // "give up" — so the message stays Queued and the job goes back to Pending with an
+        // attempt spent. Asserting Failed here (as this test used to) asserted the
+        // opposite of the design.
         var client = TestRequests.CreateClient(_fixture);
         var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var (_, conversationId) = await ConnectAndReceiveInboundAsync(client, tenantId, ownerCookies);
         _fixture.WhatsAppApi.NextSendErrorCode = _ => 130429;
 
-        var sendResponse = await TestRequests.SendAsync(
-            client, HttpMethod.Post, $"/api/tenants/{tenantId}/conversations/{conversationId}/messages", ownerCookies,
-            new SendTextRequest("reintentable"));
-        var dto = await sendResponse.Content.ReadFromJsonAsync<MessageDto>(TestRequests.JsonOptions);
-
-        await Eventually.AssertAsync(async () =>
+        try
         {
-            await using var dbContext = _fixture.CreateOwnerDbContext();
-            return await dbContext.Messages.AsNoTracking().AnyAsync(m => m.Id == dto!.Id && m.Status == MessageStatus.Failed);
-        });
+            var sendResponse = await TestRequests.SendAsync(
+                client, HttpMethod.Post, $"/api/tenants/{tenantId}/conversations/{conversationId}/messages", ownerCookies,
+                new SendTextRequest("reintentable"));
+            var dto = await sendResponse.Content.ReadFromJsonAsync<MessageDto>(TestRequests.JsonOptions);
 
-        var retryResponse = await TestRequests.SendAsync(
-            client, HttpMethod.Post, $"/api/tenants/{tenantId}/messages/{dto!.Id}/retry", ownerCookies);
+            await Eventually.AssertAsync(async () =>
+            {
+                await using var dbContext = _fixture.CreateOwnerDbContext();
+                return await dbContext.OutboundMessageJobs.AsNoTracking()
+                    .AnyAsync(j => j.MessageId == dto!.Id && j.Attempts >= 1);
+            });
 
-        Assert.Equal(HttpStatusCode.Accepted, retryResponse.StatusCode);
+            await using var db = _fixture.CreateOwnerDbContext();
+            var job = await db.OutboundMessageJobs.AsNoTracking().SingleAsync(j => j.MessageId == dto!.Id);
+            var message = await db.Messages.AsNoTracking().SingleAsync(m => m.Id == dto!.Id);
 
-        await Eventually.AssertAsync(async () =>
+            Assert.Equal(OutboundJobStatus.Pending, job.Status);
+            Assert.True(job.NextAttemptAt > DateTimeOffset.UtcNow, "A retry has to be scheduled into the future.");
+            Assert.Equal(MessageStatus.Queued, message.Status);
+            Assert.Null(message.ErrorCode);
+        }
+        finally
         {
-            await using var dbContext = _fixture.CreateOwnerDbContext();
-            return await dbContext.Messages.AsNoTracking().AnyAsync(m => m.Id == dto.Id && m.Status == MessageStatus.Sent);
-        });
+            // Shared fixture: leaving this set would fail every later send in this class.
+            _fixture.WhatsAppApi.NextSendErrorCode = null;
+        }
     }
+
+    // Known gap: nothing covers a *successful* manual retry (POST .../messages/{id}/retry
+    // returning 202 and the message reaching Sent). Getting there needs the message to be
+    // Failed, which for a transient error means exhausting five automatic attempts whose
+    // backoff is 30s, 60s, 120s… — minutes of real time. Forcing it by rewriting
+    // next_attempt_at deadlocks against the row lock OutboundMessageWorker holds while it
+    // dispatches; that attempt took eleven minutes and still failed.
+    //
+    // The piece that actually unblocks it is a time provider the test host can move
+    // forward — the same MutableTimeProvider ORB-B06 and ORB-B07 each wrote down as
+    // missing. It exists in Orbita.UnitTests/TestSupport now; wiring one into
+    // TenantsApiFixture is what this test, the expired-signed-URL test and the
+    // closed-service-window test are all waiting on.
 
     [Fact]
     public async Task Retry_Failed131047_409()
