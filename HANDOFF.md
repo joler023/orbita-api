@@ -6,6 +6,13 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-15 (2)** — **Dos bugs serios de Row Level Security, arreglados en `fix/outbound-reads-under-rls`.** Los encontró la primera corrida real contra una base con RLS aplicando de verdad; las pruebas de integración que debían haberlos detectado existían desde B03 y B05, pero nunca se habían ejecutado (sin Docker en aquella máquina).
+
+- **Ningún envío funcionaba.** `OutboundMessageService` leía `conversations` fuera de un scope de tenant, así que todo `POST .../conversations/{id}/messages` devolvía 404 sobre una conversación existente.
+- **El segundo mensaje de cada cliente rompía la ingesta.** `InboundMessageProcessor` leía `contacts`/`conversations`/`messages` igual, así que la búsqueda de contacto siempre fallaba: creaba un contacto duplicado, violaba `ix_contacts_tenant_phone` y el evento de webhook quedaba muerto. El chequeo de idempotencia por `external_id` estaba inerte por lo mismo.
+
+Hay un miembro nuevo en `IUnitOfWork`, `ExecuteAndSaveInTenantScopeAsync`, para el caso "leer y escribir en la misma transacción con el mismo `app.tenant_id`". Ver CLAUDE.md, sección "Reads of RLS'd tables must run inside a tenant scope". **Ojo al mergear**: agregar un miembro a `IUnitOfWork` rompe toda implementación a mano de la interfaz y git no lo marca como conflicto.
+
 **2026-09-15** — Hay **base de desarrollo/integración administrada** (Neon, PostgreSQL 18) con las 24 migraciones aplicadas y datos de ejemplo cargados. No reemplaza a Docker: las pruebas de integración siguen levantando su propio Postgres con Testcontainers, esto es para correr la API y para que el frontend tenga contra qué trabajar.
 
 Lo que hay que saber antes de apuntar cualquier otra base administrada a este repo:

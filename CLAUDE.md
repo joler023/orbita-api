@@ -213,6 +213,25 @@ The transactional-outbox pattern: `IOutboxWriter.StageAsync` only adds an `Outbo
 - **Route has no `conversationId`.** `POST /api/tenants/{tenantId}/messages/{messageId}/retry` mirrors the existing `GET .../messages/{messageId}/media-url` shape (ORB-B06) rather than nesting under `/conversations/{conversationId}/messages/...` like the three send endpoints — a retry only ever needs the message id, and the conversation is resolved from it.
 - **Known gap:** the new `MessageStatusTests` (status webhook round-trip, transient retry succeeding, permanent-error retry returning 409) are integration tests and can't run without Docker on this machine (`Orbita.IntegrationTests` needs Testcontainers/`pgvector`) — they compile and are wired the same way every other integration test in this suite is, but are unverified end-to-end until Docker is available.
 
+### Reads of RLS'd tables must run inside a tenant scope
+
+The rule was already stated under domain rule 1, but it was being broken in the two hottest paths in the product, so it is worth stating as its own failure mode: **`SET LOCAL app.tenant_id` dies with its transaction.** A repository call made outside one runs with no tenant set, and an RLS'd table answers "no rows" — not an error, not an empty-ish result you'd notice in a debugger, just nothing.
+
+The EF query filter hides this during development: it passes, the SQL looks right, and Postgres returns zero rows anyway. It also hides it in *any* test that does not run against a database with RLS actually applying — which is why ORB-B03's and ORB-B05's integration tests were written but, never having been executed against a real Postgres, never caught it.
+
+What it looked like in practice:
+
+- `OutboundMessageService.RequireSendableConversationAsync` read `conversations` plainly, so **every** send — human or agent — answered `404 Conversation not found` on a conversation that was right there.
+- `InboundMessageProcessor` read `contacts`, `conversations` and `messages` plainly, so the contact lookup always missed: the *second* message a customer ever sent created a duplicate contact, violated `ix_contacts_tenant_phone`, and dead-lettered the webhook event. The `FindByExternalIdAsync` idempotency check was silently inert for the same reason.
+
+The fix, and the rule for anything new:
+
+- A read that decides something, followed later by a write, goes in `IUnitOfWork.QueryInTenantScopeAsync`.
+- A read whose result the write *depends on having found* goes in **`IUnitOfWork.ExecuteAndSaveInTenantScopeAsync`** (new): one transaction, tenant set once, reads and writes and the save all inside it. Splitting those two across separate scopes is what produced the duplicate contact.
+- `ExecuteInTenantScopeAsync` remains for bulk operations that save themselves (`ExecuteUpdate`/`ExecuteDelete`).
+
+`IUnitOfWork` gaining a member breaks every hand-written implementation of it in the test projects, and git does not mark that as a conflict — `Orbita.UnitTests/TestSupport/PassThroughUnitOfWork` is now the one shared implementation, so there is a single place to update.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
