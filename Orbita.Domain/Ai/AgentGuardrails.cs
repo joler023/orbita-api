@@ -1,7 +1,3 @@
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
-
 namespace Orbita.Domain.Ai;
 
 /// <summary>
@@ -139,18 +135,8 @@ public static class AgentGuardrails
             return null;
         }
 
-        var haystack = Normalize(incomingMessage);
-
-        return agent.BlockedTopics.FirstOrDefault(topic => ContainsWholeWord(haystack, Normalize(topic)));
+        return agent.BlockedTopics.FirstOrDefault(topic => Common.WholeWordText.Contains(incomingMessage, topic));
     }
-
-    private static bool ContainsWholeWord(string normalizedHaystack, string normalizedNeedle)
-        => normalizedNeedle.Length > 0
-            && Regex.IsMatch(
-                normalizedHaystack,
-                $@"(?<![\w]){Regex.Escape(normalizedNeedle)}(?![\w])",
-                RegexOptions.CultureInvariant,
-                TimeSpan.FromMilliseconds(100));
 
     private static int ConsecutiveAssistantTurns(IReadOnlyList<AgentConversationTurn> history)
     {
@@ -175,39 +161,7 @@ public static class AgentGuardrails
             || reply.Contains("Estos son fragmentos de los documentos del negocio", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsEffectivelyTheSame(string previous, string candidate)
-        => string.Equals(Normalize(previous), Normalize(candidate), StringComparison.Ordinal);
-
-    /// <summary>Lowercased, accent-stripped, whitespace-collapsed.</summary>
-    private static string Normalize(string value)
-    {
-        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-        var lastWasSpace = false;
-
-        foreach (var character in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
-            {
-                continue;
-            }
-
-            if (char.IsWhiteSpace(character))
-            {
-                if (!lastWasSpace)
-                {
-                    builder.Append(' ');
-                    lastWasSpace = true;
-                }
-
-                continue;
-            }
-
-            builder.Append(character);
-            lastWasSpace = false;
-        }
-
-        return builder.ToString().Normalize(NormalizationForm.FormC);
-    }
+        => string.Equals(Common.WholeWordText.Normalize(previous), Common.WholeWordText.Normalize(candidate), StringComparison.Ordinal);
 }
 
 /// <summary>One earlier turn, reduced to what the guardrails need to judge it.</summary>
