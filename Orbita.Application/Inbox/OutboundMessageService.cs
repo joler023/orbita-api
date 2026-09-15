@@ -36,6 +36,22 @@ public sealed class OutboundMessageService(
         return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
     }
 
+    public async Task<MessageDto> SendAgentReplyAsync(Guid tenantId, Guid conversationId, string text, Guid aiRunId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+        var message = Message.OutboundAgentText(tenantId, conversationId, text, aiRunId, now);
+
+        // isHuman: false — the assistant answering is not the team answering, and
+        // first_response_seconds is a measure of how long a person took to reply.
+        conversation.RegisterOutbound(now, text, isHuman: false);
+
+        return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
+    }
+
     public async Task<MessageDto> SendMediaAsync(Guid tenantId, Guid callerUserId, Guid conversationId, SendMediaRequest request, CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);

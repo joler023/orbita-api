@@ -22,4 +22,23 @@ public interface IKnowledgeSearchService
         string query,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The same search, run by the assistant consulting its own documents (ORB-C04) —
+    /// no permission check, because there is no human caller to check: the tenant was
+    /// established by the inbound message, not by a request.
+    ///
+    /// Separate entry point rather than a nullable caller id, for the same reason
+    /// <c>IAuditLogger</c> splits <c>RecordAsync</c> from <c>RecordSystemActionAsync</c>:
+    /// "nobody authorized this" should be something you have to write down, not something
+    /// you get by passing null.
+    /// </summary>
+    /// <exception cref="AiAgentNotFoundException">No such agent in this tenant.</exception>
+    /// <exception cref="LlmProviderException">The query could not be embedded.</exception>
+    Task<IReadOnlyList<KnowledgeSearchHit>> SearchForAgentAsync(
+        Guid tenantId,
+        Guid agentId,
+        string query,
+        int limit,
+        CancellationToken cancellationToken);
 }

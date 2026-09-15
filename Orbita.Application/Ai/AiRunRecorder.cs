@@ -4,11 +4,11 @@ namespace Orbita.Application.Ai;
 
 public sealed class AiRunRecorder(IAiRunRepository runRepository, TimeProvider timeProvider) : IAiRunRecorder
 {
-    public void Record(Guid tenantId, Guid agentId, LlmUsage usage, Guid? conversationId = null)
+    public Guid Record(Guid tenantId, Guid agentId, LlmUsage usage, Guid? conversationId = null)
     {
         ArgumentNullException.ThrowIfNull(usage);
 
-        runRepository.Add(AiRun.Record(
+        var run = AiRun.Record(
             tenantId,
             agentId,
             conversationId,
@@ -18,7 +18,11 @@ public sealed class AiRunRecorder(IAiRunRepository runRepository, TimeProvider t
             usage.CostUsd,
             usage.LatencyMs,
             usage.FinishReason,
-            timeProvider.GetUtcNow()));
+            timeProvider.GetUtcNow());
+
+        runRepository.Add(run);
+
+        return run.Id;
     }
 
     public void RecordFailure(Guid tenantId, Guid agentId, string model, string error, int? latencyMs, Guid? conversationId = null)

@@ -13,7 +13,14 @@ namespace Orbita.Application.Ai;
 /// </summary>
 public interface IAiRunRecorder
 {
-    void Record(Guid tenantId, Guid agentId, LlmUsage usage, Guid? conversationId = null);
+    /// <summary>
+    /// Returns the staged run's id so a caller that produces something attributable to
+    /// the call — ORB-C04's reply, which carries <c>messages.ai_run_id</c> — can link the
+    /// two in the same transaction. The row is staged, not saved: the id is real before
+    /// anything reaches the database, because it is client-generated like every other
+    /// <c>Guid</c> key here.
+    /// </summary>
+    Guid Record(Guid tenantId, Guid agentId, LlmUsage usage, Guid? conversationId = null);
 
     /// <summary>A call that failed still consumed time, and often tokens.</summary>
     void RecordFailure(Guid tenantId, Guid agentId, string model, string error, int? latencyMs, Guid? conversationId = null);
