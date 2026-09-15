@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Domain.Identity;
 
@@ -79,6 +80,43 @@ public static class TestRequests
         acceptResponse.EnsureSuccessStatusCode();
 
         return (summary!.MembershipId, memberCookies);
+    }
+
+    /// <summary>
+    /// Connects a WhatsApp account <b>and completes Meta's verification handshake</b>, so
+    /// the account ends up <c>Connected</c> and can actually send.
+    ///
+    /// The second half is the part that is easy to forget and impossible to notice:
+    /// ORB-B01 leaves a freshly connected account in <c>PendingVerification</c> until
+    /// Meta calls the per-account callback back. In production Meta does that inside
+    /// SubscribeWebhookAsync; here the fake client only records the subscription, so the
+    /// test has to play Meta's side. A test that skips it gets an account that looks
+    /// connected in the response body and refuses every send with
+    /// <c>ChannelNotConnectedException</c> — which surfaces as a 409 that reads like a
+    /// closed service window and has nothing to do with one.
+    /// </summary>
+    public static async Task<ChannelAccountDto> ConnectVerifiedWhatsAppAsync(
+        TenantsApiFixture fixture,
+        HttpClient client,
+        Guid tenantId,
+        CookieJar cookies)
+    {
+        var wabaId = $"waba-{Guid.NewGuid():N}";
+        var request = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", wabaId, $"phone-{Guid.NewGuid():N}");
+
+        var response = await SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, request);
+        response.EnsureSuccessStatusCode();
+        var account = (await response.Content.ReadFromJsonAsync<ChannelAccountDto>(JsonOptions))!;
+
+        var subscription = fixture.WhatsAppApi.LatestSubscriptionFor(wabaId);
+        var verify = await client.GetAsync(
+            $"/api/webhooks/whatsapp/{account.Id}?hub.mode=subscribe&hub.verify_token={subscription.VerifyToken}&hub.challenge=ok");
+        verify.EnsureSuccessStatusCode();
+
+        var reread = await SendAsync(client, HttpMethod.Get, $"/api/tenants/{tenantId}/channels/{account.Id}", cookies);
+        reread.EnsureSuccessStatusCode();
+
+        return (await reread.Content.ReadFromJsonAsync<ChannelAccountDto>(JsonOptions))!;
     }
 
     public static async Task<HttpResponseMessage> SendAsync(
