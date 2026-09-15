@@ -28,6 +28,21 @@ public sealed class AiRunConfiguration : IEntityTypeConfiguration<AiRun>
         builder.Property(r => r.LatencyMs).HasColumnName("latency_ms");
         builder.Property(r => r.FinishReason).HasColumnName("finish_reason").HasMaxLength(40);
         builder.Property(r => r.Error).HasColumnName("error");
+        // ORB-C09, both straight from orbita-schema.dbml.
+        builder.Property<List<string>>("_toolsCalled")
+            .HasColumnName("tools_called")
+            .HasColumnType("jsonb")
+            .HasField("_toolsCalled")
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .IsRequired();
+
+        builder.Property<List<Guid>>("_retrievedChunkIds")
+            .HasColumnName("retrieved_chunk_ids")
+            .HasColumnType("uuid[]")
+            .HasField("_retrievedChunkIds")
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .IsRequired();
+
         builder.Property(r => r.CreatedAt).HasColumnName("created_at").IsRequired();
 
         // The billing rollup's access path (orbita-schema.dbml names this index).
