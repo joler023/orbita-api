@@ -70,6 +70,7 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             TemplateAlreadyExistsException => (StatusCodes.Status409Conflict, "Template already exists"),
             MessageNotRetryableException => (StatusCodes.Status409Conflict, "Message cannot be retried"),
             AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
+            AgentHasHistoryException => (StatusCodes.Status409Conflict, "Assistant has history"),
             CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
             NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),
             KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
