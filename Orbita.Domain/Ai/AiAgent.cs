@@ -138,6 +138,12 @@ public sealed class AiAgent : Entity
     /// </summary>
     public string OutOfScopeReply { get; private set; } = DefaultOutOfScopeReply;
 
+    /// <summary>
+    /// When this assistant is on duty (ORB-C08). Null means always on. Like guardrails,
+    /// not part of the draft: "stop answering after 6pm" has to hold the moment it is saved.
+    /// </summary>
+    public BusinessHours? BusinessHours { get; private set; }
+
     public bool IsEnabled { get; private set; }
 
     public DateTimeOffset CreatedAt { get; }
@@ -262,6 +268,8 @@ public sealed class AiAgent : Entity
     /// Blank entries are dropped rather than rejected — an empty line left in a textarea
     /// would otherwise match every message ever sent and silence the assistant completely.
     /// </summary>
+    public void SetBusinessHours(BusinessHours? businessHours) => BusinessHours = businessHours;
+
     public void SetGuardrails(IReadOnlyList<string> topics, string outOfScopeReply)
     {
         ArgumentNullException.ThrowIfNull(topics);
