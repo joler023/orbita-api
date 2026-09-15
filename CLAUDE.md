@@ -281,6 +281,12 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
 - Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
 
+### Registro de consumo de IA (ORB-C09, parte que no depende de A13)
+
+`ai_runs` gains two orbita-schema.dbml columns: `tools_called` (jsonb, tool names) and `retrieved_chunk_ids` (uuid[]). One run per model call, so in a tool loop the round that asked for tools carries them and the follow-up round carries none — that is literally what happened, and what billing per action needs. Retrieved fragments are recorded on the first round only: they went into every round's prompt but were retrieved once, and a sum over runs must not double-count them. Existing rows get `[]` / `'{}'`.
+
+**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `was_handoff`, `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — the first needs ORB-C07, the others have no consumer, and this repo does not pre-create columns for features that do not exist.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
