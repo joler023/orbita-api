@@ -36,18 +36,20 @@ public static class AiToolCatalog
             "Busca la respuesta en los documentos que subiste antes de contestar.",
             IsAvailable: true,
             UnavailableReason: null),
+        // Available since ORB-C05. Both act only on the contact of the conversation the
+        // assistant is in, never on an id the model supplies — see IOpportunityService.
         new(
             CrearOportunidad,
             "Registrar una oportunidad de venta",
             "Crea una oportunidad en el tablero cuando detecta interés de compra.",
-            IsAvailable: false,
-            "Disponible cuando se active el módulo de oportunidades."),
+            IsAvailable: true,
+            UnavailableReason: null),
         new(
             MoverEtapa,
             "Mover una oportunidad de etapa",
             "Avanza una oportunidad en el tablero cuando la conversación lo justifica.",
-            IsAvailable: false,
-            "Disponible cuando se active el módulo de oportunidades."),
+            IsAvailable: true,
+            UnavailableReason: null),
         new(
             AgendarCita,
             "Agendar una cita",
