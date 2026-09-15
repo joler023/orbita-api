@@ -73,6 +73,24 @@ public sealed class AiRun : Entity
 
     public DateTimeOffset CreatedAt { get; }
 
+    /// <summary>
+    /// The tool names the model asked for in this call (ORB-C09). One run per model call,
+    /// so a two-round tool exchange leaves the first run with the tools and the second
+    /// with none — which is exactly what happened, and what billing by action needs.
+    /// </summary>
+    public IReadOnlyList<string> ToolsCalled => _toolsCalled;
+
+    /// <summary>
+    /// Which knowledge fragments were in the prompt (orbita-schema.dbml's
+    /// <c>retrieved_chunk_ids</c>). It is what lets someone answer "where did this reply
+    /// come from" after the fact, when the documents may already have changed.
+    /// </summary>
+    public IReadOnlyList<Guid> RetrievedChunkIds => _retrievedChunkIds;
+
+    private readonly List<string> _toolsCalled = [];
+
+    private readonly List<Guid> _retrievedChunkIds = [];
+
     public static AiRun Record(
         Guid tenantId,
         Guid agentId,
@@ -83,8 +101,17 @@ public sealed class AiRun : Entity
         decimal costUsd,
         int? latencyMs,
         string? finishReason,
-        DateTimeOffset now)
-        => new(Guid.NewGuid(), tenantId, agentId, conversationId, model, tokensIn, tokensOut, costUsd, latencyMs, finishReason, error: null, now);
+        DateTimeOffset now,
+        IReadOnlyList<string>? toolsCalled = null,
+        IReadOnlyList<Guid>? retrievedChunkIds = null)
+    {
+        var run = new AiRun(Guid.NewGuid(), tenantId, agentId, conversationId, model, tokensIn, tokensOut, costUsd, latencyMs, finishReason, error: null, now);
+
+        run._toolsCalled.AddRange(toolsCalled ?? []);
+        run._retrievedChunkIds.AddRange(retrievedChunkIds ?? []);
+
+        return run;
+    }
 
     public static AiRun RecordFailure(
         Guid tenantId,
