@@ -343,6 +343,35 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task An_assistant_that_already_worked_cannot_be_deleted()
+    {
+        // ai_runs is the consumption ledger ORB-A13 and ORB-A12 read, and the foreign key
+        // to it is RESTRICT — without this guard the delete reached Postgres and came back
+        // as an unhandled constraint violation, a 500 on a button screen 2.5 offers.
+        var client = TestRequests.CreateClient(fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+
+        var created = await CreateAsync(client, cookies, tenantId, "Ya trabajó");
+
+        // One turn in the test bench is enough to produce a run.
+        var run = await TestRequests.SendAsync(
+            client,
+            HttpMethod.Post,
+            $"/api/tenants/{tenantId}/ai-agents/{created.Id}/test-chat",
+            cookies,
+            new { message = "hola" });
+        run.EnsureSuccessStatusCode();
+
+        var response = await TestRequests.SendAsync(
+            client, HttpMethod.Delete, $"/api/tenants/{tenantId}/ai-agents/{created.Id}", cookies);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        // Still there, and still switchable off — which is what the owner actually wanted.
+        Assert.Equal(2, (await ListAsync(client, cookies, tenantId)).Count);
+    }
+
+    [Fact]
     public async Task A_second_assistant_can_be_deleted()
     {
         var client = TestRequests.CreateClient(fixture);
