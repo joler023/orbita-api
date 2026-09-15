@@ -25,6 +25,13 @@ public sealed class RolePermissionsTests
     [InlineData(MemberRole.Admin, Permission.ManageSettings, true)]
     [InlineData(MemberRole.Agent, Permission.ManageSettings, false)]
     [InlineData(MemberRole.Viewer, Permission.ManageSettings, false)]
+    [InlineData(MemberRole.Owner, Permission.ViewChannels, true)]
+    [InlineData(MemberRole.Agent, Permission.ViewChannels, true)]
+    [InlineData(MemberRole.Viewer, Permission.ViewChannels, true)]
+    [InlineData(MemberRole.Owner, Permission.ManageChannels, true)]
+    [InlineData(MemberRole.Admin, Permission.ManageChannels, true)]
+    [InlineData(MemberRole.Agent, Permission.ManageChannels, false)]
+    [InlineData(MemberRole.Viewer, Permission.ManageChannels, false)]
     public void Grants_MatchesTheDocumentedPermissionMatrix(MemberRole role, Permission permission, bool expected)
     {
         Assert.Equal(expected, RolePermissions.Grants(role, permission));

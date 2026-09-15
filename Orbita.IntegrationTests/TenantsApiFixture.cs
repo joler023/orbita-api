@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Orbita.Application.Ai;
 using Orbita.Application.Billing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Domain.Billing;
 using Orbita.Application.Media;
@@ -48,6 +49,15 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
     /// <summary>Same idea as <see cref="InvitationEmails"/>, for password reset links (ORB-A10).</summary>
     public CapturingPasswordResetEmailSender PasswordResetEmails { get; } = new();
 
+    /// <summary>Records the webhook subscriptions the backend would have asked Meta for (ORB-B01).</summary>
+    public FakeWhatsAppCloudApiClient WhatsAppApi { get; } = new();
+
+    /// <summary>Public base URL the app under test believes Meta can reach it at — see ConfigureWebHost.</summary>
+    public const string WebhookPublicBaseUrl = "https://api.orbita.test";
+
+    /// <summary>The app-level hub.verify_token configured for the test host.</summary>
+    public const string GlobalVerifyToken = "test-global-verify-token";
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
@@ -66,6 +76,10 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Postgres"] = BuildAppConnectionString(),
+                ["Channels:Meta:AppId"] = "test-app-id",
+                ["Channels:Meta:AppSecret"] = "test-app-secret",
+                ["Channels:Meta:VerifyToken"] = GlobalVerifyToken,
+                ["Channels:Webhooks:PublicBaseUrl"] = WebhookPublicBaseUrl,
             });
         });
 
@@ -81,6 +95,13 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.RemoveAll<IPaymentProvider>();
             services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Stripe));
             services.AddSingleton<IPaymentProvider>(new FakePaymentProvider(PaymentProvider.Wompi));
+
+            // No Meta app exists either (ORB-B01) — the Graph API clients are replaced
+            // with fakes the same way; the real ones would need Channels:Meta:* filled in.
+            services.RemoveAll<IMetaAuthClient>();
+            services.AddSingleton<IMetaAuthClient>(new FakeMetaAuthClient());
+            services.RemoveAll<IWhatsAppCloudApiClient>();
+            services.AddSingleton<IWhatsAppCloudApiClient>(WhatsAppApi);
 
             // Same reasoning for the model provider: a real one would need Ollama running
             // or an OpenRouter balance, and would make every assertion flaky.

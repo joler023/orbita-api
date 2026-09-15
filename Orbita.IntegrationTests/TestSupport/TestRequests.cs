@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Orbita.Application.Identity;
+using Orbita.Domain.Identity;
 
 namespace Orbita.IntegrationTests.TestSupport;
 
@@ -51,6 +52,33 @@ public static class TestRequests
         loginResponse.EnsureSuccessStatusCode();
 
         return (email, password, registered!.TenantId, cookies);
+    }
+
+    /// <summary>
+    /// Invites a new person with the given role and accepts on their behalf, returning
+    /// their membership id and a cookie jar logged in as them — the standard way to get
+    /// a lower-privileged actor for a 403 assertion.
+    /// </summary>
+    public static async Task<(Guid MembershipId, CookieJar Cookies)> InviteAndAcceptAsync(
+        TenantsApiFixture fixture,
+        HttpClient client,
+        Guid tenantId,
+        CookieJar ownerCookies,
+        MemberRole role)
+    {
+        var email = $"{Guid.NewGuid():N}@acme.com";
+        var inviteResponse = await SendAsync(
+            client, HttpMethod.Post, $"/api/tenants/{tenantId}/invitations", ownerCookies, new InviteTeamMemberRequest(email, role));
+        inviteResponse.EnsureSuccessStatusCode();
+        var summary = await inviteResponse.Content.ReadFromJsonAsync<TeamInvitationSummary>(JsonOptions);
+        var rawToken = fixture.InvitationEmails.LatestTokenFor(email);
+
+        var memberCookies = new CookieJar();
+        var acceptResponse = await SendAsync(
+            client, HttpMethod.Post, "/api/invitations/accept", memberCookies, new AcceptInvitationRequest(rawToken, "Member Person", "member-password-123"));
+        acceptResponse.EnsureSuccessStatusCode();
+
+        return (summary!.MembershipId, memberCookies);
     }
 
     public static async Task<HttpResponseMessage> SendAsync(

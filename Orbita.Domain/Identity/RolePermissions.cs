@@ -13,10 +13,10 @@ public static class RolePermissions
 {
     private static readonly FrozenDictionary<MemberRole, FrozenSet<Permission>> ByRole = new Dictionary<MemberRole, FrozenSet<Permission>>
     {
-        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ManageBilling, Permission.ViewAuditLog, Permission.ManageAiAgents }.ToFrozenSet(),
-        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ViewAuditLog, Permission.ManageAiAgents }.ToFrozenSet(),
-        [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam }.ToFrozenSet(),
-        [MemberRole.Viewer] = new HashSet<Permission> { Permission.ViewTeam }.ToFrozenSet(),
+        [MemberRole.Owner] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ManageBilling, Permission.ViewAuditLog, Permission.ManageAiAgents, Permission.ViewChannels, Permission.ManageChannels }.ToFrozenSet(),
+        [MemberRole.Admin] = new HashSet<Permission> { Permission.ViewTeam, Permission.ManageTeam, Permission.ManageSettings, Permission.ViewAuditLog, Permission.ManageAiAgents, Permission.ViewChannels, Permission.ManageChannels }.ToFrozenSet(),
+        [MemberRole.Agent] = new HashSet<Permission> { Permission.ViewTeam, Permission.ViewChannels }.ToFrozenSet(),
+        [MemberRole.Viewer] = new HashSet<Permission> { Permission.ViewTeam, Permission.ViewChannels }.ToFrozenSet(),
     }.ToFrozenDictionary();
 
     public static bool Grants(MemberRole role, Permission permission) => ByRole[role].Contains(permission);

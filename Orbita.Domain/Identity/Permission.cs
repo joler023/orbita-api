@@ -20,6 +20,12 @@ public enum Permission
     /// <summary>Change tenant-wide settings, e.g. requiring MFA for every member (ORB-A11).</summary>
     ManageSettings,
 
+    /// <summary>See the tenant's connected channels and their status (ORB-B01).</summary>
+    ViewChannels,
+
+    /// <summary>Connect, re-verify, or disconnect a channel account (ORB-B01).</summary>
+    ManageChannels,
+
     /// <summary>
     /// Configure the tenant's AI assistants and the documents they answer from
     /// (ORB-C02/C10). Owner and Admin, like <see cref="ManageSettings"/> — an agent's

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Orbita.Application.Ai;
 using Orbita.Application.Billing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -35,6 +36,10 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             InvalidTwoFactorCodeException => (StatusCodes.Status400BadRequest, "Invalid two-factor code"),
             TwoFactorSetupNotStartedException => (StatusCodes.Status400BadRequest, "Two-factor setup not started"),
             TwoFactorNotEnabledException => (StatusCodes.Status409Conflict, "Two-factor not enabled"),
+            ChannelAccountNotFoundException => (StatusCodes.Status404NotFound, "Channel account not found"),
+            ChannelAlreadyConnectedException => (StatusCodes.Status409Conflict, "Channel already connected"),
+            ChannelConnectionFailedException => (StatusCodes.Status502BadGateway, "Channel connection failed"),
+            WebhookVerificationFailedException => (StatusCodes.Status403Forbidden, "Webhook verification failed"),
             AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
             CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
             NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),

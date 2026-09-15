@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Orbita.Application.Ai;
 using Orbita.Application.Audit;
 using Orbita.Application.Billing;
+using Orbita.Application.Channels;
 using Orbita.Application.Identity;
 using Orbita.Application.Tenants;
 
@@ -26,6 +27,9 @@ public static class DependencyInjection
         services.AddScoped<ISubscriptionWebhookService, SubscriptionWebhookService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ITenantSettingsService, TenantSettingsService>();
+        services.AddScoped<IWhatsAppChannelService, WhatsAppChannelService>();
+        services.AddScoped<IChannelWebhookVerificationService, ChannelWebhookVerificationService>();
+        services.AddScoped<IChannelTokenExpiryService, ChannelTokenExpiryService>();
 
         // ORB-C02. The chunker is stateless, hence a singleton; everything else follows
         // the unit of work's scope.
