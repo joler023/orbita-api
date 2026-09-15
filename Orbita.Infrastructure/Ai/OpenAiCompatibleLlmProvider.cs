@@ -210,6 +210,13 @@ public sealed class OpenAiCompatibleLlmProvider(
                     Role = RoleName(message.Role),
                     Content = message.Content,
                     ToolCallId = message.ToolCallId,
+                    ToolCalls = message.ToolCalls is { Count: > 0 } calls
+                        ? calls.Select(call => new OpenAiRequestToolCall
+                        {
+                            Id = call.Id,
+                            Function = new OpenAiRequestToolCallFunction { Name = call.Name, Arguments = call.ArgumentsJson },
+                        }).ToList()
+                        : null,
                 })
                 .ToList(),
             Tools = request.Tools is { Count: > 0 } tools
