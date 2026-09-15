@@ -27,6 +27,9 @@ public sealed class AgentConversationResponderTests
     private readonly Mock<IOutboundMessageService> _outbound = new();
     private readonly Mock<Orbita.Application.Outbox.IOutboxWriter> _outbox = new();
     private readonly Mock<IAgentToolExecutor> _tools = new();
+    private readonly Mock<IRoutingRuleRepository> _routing = new();
+    private readonly Mock<Orbita.Domain.Channels.IChannelAccountRepository> _channelAccounts = new();
+    private readonly Mock<Orbita.Domain.Tenants.ITenantRepository> _tenants = new();
     private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly MutableTimeProvider _time = new(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
 
@@ -65,6 +68,7 @@ public sealed class AgentConversationResponderTests
                 Message.OutboundText(_tenantId, Guid.NewGuid(), "sistema", null, MessageCategory.Service, _time.GetUtcNow())));
 
         _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>())).Returns([]);
+        _routing.Setup(r => r.ListByTenantAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         _sut = new AgentConversationResponder(
             _conversations.Object,
@@ -76,6 +80,9 @@ public sealed class AgentConversationResponderTests
             _outbound.Object,
             _outbox.Object,
             _tools.Object,
+            _routing.Object,
+            _channelAccounts.Object,
+            _tenants.Object,
             _unitOfWork,
             _time,
             NullLogger<AgentConversationResponder>.Instance);
@@ -472,6 +479,61 @@ public sealed class AgentConversationResponderTests
         // Retrieved once, recorded once — a sum over runs must not double-count it.
         Assert.Single(recorded[0].Chunks!);
         Assert.Null(recorded[1].Chunks);
+    }
+
+    [Fact]
+    public async Task A_rule_can_route_a_new_conversation_to_the_team()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("necesito facturación electrónica");
+        _routing
+            .Setup(r => r.ListByTenantAsync(_tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([RoutingRule.Create(_tenantId, 0, "Facturación al equipo", null, "facturación", agentId: null, _time.GetUtcNow())]);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.LeftForTeamByRule, outcome.Decision);
+        Assert.Null(conversation.AiAgentId);
+        VerifyNothingWasSpent();
+    }
+
+    [Fact]
+    public async Task A_rule_picks_which_assistant_takes_a_new_conversation()
+    {
+        Agent();
+        var sales = AiAgent.Create(_tenantId, "Ventas", "Amable.", "Vende.", AgentStyle.Default, _time.GetUtcNow());
+        sales.SetEnabled(true);
+        _agents.Setup(r => r.GetByIdAsync(_tenantId, sales.Id, It.IsAny<CancellationToken>())).ReturnsAsync(sales);
+
+        var (conversation, inbound) = OpenConversation("quiero comprar al por mayor");
+        _routing
+            .Setup(r => r.ListByTenantAsync(_tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([RoutingRule.Create(_tenantId, 0, "Mayoristas", null, "mayor", sales.Id, _time.GetUtcNow())]);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
+        Assert.Equal(sales.Id, conversation.AiAgentId);
+    }
+
+    [Fact]
+    public async Task Outside_its_hours_an_assistant_set_to_leave_it_for_the_team_stays_quiet()
+    {
+        var agent = Agent();
+        // Monday 09:00–18:00 in UTC; the clock says 12:00 UTC on a Tuesday.
+        agent.SetBusinessHours(BusinessHours.Create(
+            [new BusinessHoursSlot(DayOfWeek.Monday, new TimeOnly(9, 0), new TimeOnly(18, 0))],
+            OutsideHoursBehavior.LeaveForTeam));
+
+        var (conversation, inbound) = OpenConversation();
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.OutsideBusinessHours, outcome.Decision);
+
+        // Not claimed: an assistant that will not answer must not take the conversation.
+        Assert.Null(conversation.AiAgentId);
+        VerifyNothingWasSpent();
     }
 
     /// <summary>

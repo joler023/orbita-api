@@ -192,6 +192,57 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
+    public async Task A_routing_rule_leaves_a_matching_conversation_for_the_team()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var account = await ConnectAsync(client, tenantId, cookies);
+        await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        var put = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/routing/rules", cookies,
+            new { rules = new[] { new { name = "Reclamos al equipo", channel = (string?)null, keyword = "reclamo", agentId = (Guid?)null } } });
+        put.EnsureSuccessStatusCode();
+
+        // Positive control: an ordinary message still gets the assistant.
+        var ordinary = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001230001", ordinary, "hola, abren hoy?"));
+        await WaitForAgentReplyAsync(ordinary);
+
+        var complaint = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001230002", complaint, "quiero poner un reclamo"));
+        var inbound = await WaitForInboundAsync(complaint);
+        await Task.Delay(TimeSpan.FromSeconds(3));
+
+        await using var owner = _fixture.CreateOwnerDbContext();
+        Assert.False(await owner.Messages.AsNoTracking().AnyAsync(m =>
+            m.ConversationId == inbound.ConversationId && m.Direction == MessageDirection.Outbound));
+    }
+
+    [Fact]
+    public async Task A_rule_cannot_route_to_another_tenants_assistant()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, otherTenant, otherCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Otra");
+        var foreignAgent = await EnableDefaultAgentAsync(client, otherTenant, otherCookies);
+
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Propia");
+        var ownAgent = await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        // Positive control: routing to its own assistant is accepted.
+        var own = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/routing/rules", cookies,
+            new { rules = new[] { new { name = "Propio", channel = (string?)null, keyword = (string?)null, agentId = (Guid?)ownAgent } } });
+        Assert.Equal(System.Net.HttpStatusCode.OK, own.StatusCode);
+
+        var foreign = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/routing/rules", cookies,
+            new { rules = new[] { new { name = "Ajeno", channel = (string?)null, keyword = (string?)null, agentId = (Guid?)foreignAgent } } });
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, foreign.StatusCode);
+    }
+
+    [Fact]
     public async Task A_disabled_assistant_never_answers()
     {
         var client = TestRequests.CreateClient(_fixture);
