@@ -4,7 +4,10 @@ using Orbita.Domain.Audit;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
+using Orbita.Domain.Inbox;
+using Orbita.Domain.Outbox;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Channels;
 
@@ -43,6 +46,28 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
     /// </summary>
     public DbSet<InboundWebhookEvent> InboundWebhookEvents => Set<InboundWebhookEvent>();
 
+    public DbSet<Pipeline> Pipelines => Set<Pipeline>();
+
+    public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
+
+    public DbSet<Opportunity> Opportunities => Set<Opportunity>();
+
+    public DbSet<Contact> Contacts => Set<Contact>();
+
+    public DbSet<ContactFieldDefinition> ContactFieldDefinitions => Set<ContactFieldDefinition>();
+
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+
+    public DbSet<Message> Messages => Set<Message>();
+
+    /// <summary>No query filter — the dispatcher reads across every tenant's pending events. See OutboxEventConfiguration.</summary>
+    public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+
+    /// <summary>No query filter — the send worker scans across every tenant's due jobs. See OutboundMessageJobConfiguration.</summary>
+    public DbSet<OutboundMessageJob> OutboundMessageJobs => Set<OutboundMessageJob>();
+
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
 
     public DbSet<AiAgentDraft> AiAgentDrafts => Set<AiAgentDraft>();
@@ -75,6 +100,30 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<AuditLogEntry>()
             .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Pipeline>()
+            .HasQueryFilter(p => tenantContext.TenantId == null || p.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<PipelineStage>()
+            .HasQueryFilter(s => tenantContext.TenantId == null || s.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Opportunity>()
+            .HasQueryFilter(o => tenantContext.TenantId == null || o.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Contact>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<ContactFieldDefinition>()
+            .HasQueryFilter(f => tenantContext.TenantId == null || f.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Conversation>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<Message>()
+            .HasQueryFilter(m => tenantContext.TenantId == null || m.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<MessageTemplate>()
+            .HasQueryFilter(t => tenantContext.TenantId == null || t.TenantId == tenantContext.TenantId);
 
         // ORB-C02's four tables. Every one carries tenant_id, so every one gets the
         // filter — layer 1 of the isolation rule; the RLS policy in the migration is

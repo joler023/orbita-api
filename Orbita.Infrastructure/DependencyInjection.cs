@@ -14,15 +14,21 @@ using Orbita.Infrastructure.Common;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
+using Orbita.Application.Inbox;
 using Orbita.Domain.Billing;
 using Orbita.Domain.Channels;
 using Orbita.Domain.Common;
+using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
+using Orbita.Application.Outbox;
+using Orbita.Domain.Inbox;
+using Orbita.Domain.Outbox;
 using Orbita.Domain.Tenants;
 using Orbita.Infrastructure.Billing;
 using Orbita.Infrastructure.Channels;
 using Orbita.Infrastructure.Channels.Meta;
 using Orbita.Infrastructure.Identity;
+using Orbita.Infrastructure.Outbox;
 using Orbita.Infrastructure.Persistence;
 using Orbita.Infrastructure.Persistence.Repositories;
 using Orbita.Infrastructure.Workers;
@@ -65,6 +71,23 @@ public static class DependencyInjection
         services.AddScoped<IPlanRepository, PlanRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<ITwoFactorBackupCodeRepository, TwoFactorBackupCodeRepository>();
+        services.AddScoped<IPipelineRepository, PipelineRepository>();
+        services.AddScoped<IPipelineStageRepository, PipelineStageRepository>();
+        services.AddScoped<IOpportunityRepository, OpportunityRepository>();
+        services.AddScoped<IContactRepository, ContactRepository>();
+        services.AddScoped<IContactFieldDefinitionRepository, ContactFieldDefinitionRepository>();
+        services.AddScoped<IConversationRepository, ConversationRepository>();
+        services.AddScoped<IMessageRepository, MessageRepository>();
+        services.AddScoped<IMessageTemplateRepository, MessageTemplateRepository>();
+        services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
+        services.AddScoped<IIntegrationEventPublisher, InProcessIntegrationEventPublisher>();
+        services.AddHostedService<OutboxDispatcherWorker>();
+        services.AddScoped<IOutboundMessageQueue, PostgresOutboundMessageQueue>();
+        services.AddSingleton<IOutboundMessageRateLimiter, TokenBucketRateLimiter>();
+        services.AddHostedService<OutboundMessageWorker>();
+        services.AddOptions<MediaOptions>().BindConfiguration(MediaOptions.SectionName);
+        services.AddScoped<IMediaStorage, LocalFileMediaStorage>();
+        services.AddSingleton<IMediaUrlSigner, MediaUrlSigner>();
         services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IInvitationEmailSender, LoggingInvitationEmailSender>();
@@ -105,6 +128,13 @@ public static class DependencyInjection
         services.AddSingleton<IWebhookSignatureVerifier, MetaWebhookSignatureVerifier>();
         services.AddSingleton<IWebhookDeduplicator, MemoryCacheWebhookDeduplicator>();
         services.AddScoped<IInboundWebhookQueue, PostgresInboundWebhookQueue>();
+
+        // ORB-B03: inbound message normalization. Scoped, not Singleton — ORB-B05's
+        // SendTextAsync pulled in IChannelCredentialStore/IWhatsAppCloudApiClient,
+        // both Scoped, and a Singleton can't depend on those without becoming a
+        // captive dependency.
+        services.AddScoped<IChannelAdapter, WhatsAppChannelAdapter>();
+        services.AddHostedService<InboundMessageWorker>();
 
         // Graph API clients: typed HttpClients, same registration shape as Wompi. The
         // factory's default request/response logging is removed on purpose — it writes
@@ -214,11 +244,9 @@ public static class DependencyInjection
         services.AddSingleton<ITextExtractor, PdfTextExtractor>();
         services.AddSingleton<ITextExtractor, DocxTextExtractor>();
 
-        // ORB-B06's storage, reused rather than duplicated — see IMediaStorage. The
-        // options section and the lifetime match how Channels registers it, so the two
-        // registrations collapse into one when the branches meet.
-        services.AddOptions<MediaOptions>().BindConfiguration(MediaOptions.SectionName);
-        services.AddScoped<IMediaStorage, LocalFileMediaStorage>();
+        // IMediaStorage/MediaOptions are ORB-B06's (Channels) — reused here rather than
+        // duplicated, now that both branches have met. See the registration in
+        // AddOrbitaInfrastructure above.
 
         services.AddHostedService<KnowledgeIndexingHostedService>();
     }

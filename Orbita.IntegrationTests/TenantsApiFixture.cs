@@ -11,6 +11,7 @@ using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
+using Orbita.Application.Outbox;
 using Orbita.Domain.Billing;
 using Orbita.Application.Media;
 using Orbita.Infrastructure.Media;
@@ -51,6 +52,9 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
 
     /// <summary>Records the webhook subscriptions the backend would have asked Meta for (ORB-B01).</summary>
     public FakeWhatsAppCloudApiClient WhatsAppApi { get; } = new();
+
+    /// <summary>Records every outbox event OutboxDispatcherWorker actually publishes (ORB-B04).</summary>
+    public RecordingIntegrationEventHandler IntegrationEvents { get; } = new();
 
     /// <summary>Public base URL the app under test believes Meta can reach it at — see ConfigureWebHost.</summary>
     public const string WebhookPublicBaseUrl = "https://api.orbita.test";
@@ -102,6 +106,8 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.AddSingleton<IMetaAuthClient>(new FakeMetaAuthClient());
             services.RemoveAll<IWhatsAppCloudApiClient>();
             services.AddSingleton<IWhatsAppCloudApiClient>(WhatsAppApi);
+
+            services.AddSingleton<IIntegrationEventHandler>(IntegrationEvents);
 
             // Same reasoning for the model provider: a real one would need Ollama running
             // or an OpenRouter balance, and would make every assertion flaky.

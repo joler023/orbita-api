@@ -12,7 +12,7 @@ namespace Orbita.Infrastructure.Channels;
 /// no-op, not a unique-constraint exception, since Meta's own redeliveries are expected
 /// traffic here.
 /// </summary>
-public sealed class PostgresInboundWebhookQueue(OrbitaDbContext dbContext) : IInboundWebhookQueue
+public sealed class PostgresInboundWebhookQueue(OrbitaDbContext dbContext, TimeProvider timeProvider) : IInboundWebhookQueue
 {
     public Task EnqueueAsync(InboundWebhookEvent webhookEvent, CancellationToken cancellationToken)
         => dbContext.Database.ExecuteSqlInterpolatedAsync(
@@ -25,5 +25,30 @@ public sealed class PostgresInboundWebhookQueue(OrbitaDbContext dbContext) : IIn
                  {webhookEvent.Status.ToString()}, {webhookEvent.Attempts})
             ON CONFLICT (payload_hash) DO NOTHING
             """,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<InboundWebhookEvent>> DequeueBatchAsync(int batchSize, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        return await dbContext.InboundWebhookEvents
+            .FromSqlInterpolated(
+                $"""
+                UPDATE inbound_webhook_events
+                SET status = 'Processing', locked_at = {now}
+                WHERE id IN (
+                    SELECT id FROM inbound_webhook_events
+                    WHERE status = 'Pending'
+                    ORDER BY id
+                    LIMIT {batchSize}
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING *
+                """)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> RequeueStaleAsync(CancellationToken cancellationToken)
+        => dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE inbound_webhook_events SET status = 'Pending', locked_at = NULL WHERE status = 'Processing'",
             cancellationToken);
 }

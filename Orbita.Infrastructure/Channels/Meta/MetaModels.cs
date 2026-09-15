@@ -32,3 +32,25 @@ internal sealed record WhatsAppPhoneNumberResponse(
 
 /// <summary>POST /{waba_id}/subscribed_apps.</summary>
 internal sealed record MetaSuccessResponse([property: JsonPropertyName("success")] bool Success);
+
+/// <summary>POST /{phone_number_id}/messages.</summary>
+internal sealed record WhatsAppSendMessageResponse([property: JsonPropertyName("messages")] IReadOnlyList<WhatsAppSentMessageId> Messages);
+
+internal sealed record WhatsAppSentMessageId([property: JsonPropertyName("id")] string Id);
+
+/// <summary>POST /{phone_number_id}/media.</summary>
+internal sealed record WhatsAppUploadMediaResponse([property: JsonPropertyName("id")] string Id);
+
+/// <summary>GET /{media_id}.</summary>
+internal sealed record WhatsAppMediaUrlResponse(
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("mime_type")] string MimeType);
+
+/// <summary>GET /{waba_id}/message_templates.</summary>
+internal sealed record WhatsAppTemplateListResponse([property: JsonPropertyName("data")] IReadOnlyList<WhatsAppTemplateData> Data);
+
+internal sealed record WhatsAppTemplateData(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("language")] string Language,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejected_reason")] string? RejectedReason);
