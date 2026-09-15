@@ -35,6 +35,18 @@ public sealed class MessageRepository(OrbitaDbContext dbContext) : IMessageRepos
         return newestFirst;
     }
 
+    public Task<int> CountAgentRepliesSinceAsync(
+        Guid tenantId,
+        Guid conversationId,
+        DateTimeOffset since,
+        CancellationToken cancellationToken)
+        => dbContext.Messages
+            .Where(m => m.TenantId == tenantId
+                && m.ConversationId == conversationId
+                && m.CreatedAt >= since
+                && m.AiRunId != null)
+            .CountAsync(cancellationToken);
+
     public async Task AddAsync(Message message, CancellationToken cancellationToken)
         => await dbContext.Messages.AddAsync(message, cancellationToken);
 }

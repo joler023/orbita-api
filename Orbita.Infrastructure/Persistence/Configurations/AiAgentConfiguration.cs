@@ -46,6 +46,19 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
             .UsePropertyAccessMode(PropertyAccessMode.Field)
             .IsRequired();
 
+        // ORB-C06. jsonb like tools: a short list of the owner's own words, readable in psql.
+        builder.Property<List<string>>("_blockedTopics")
+            .HasColumnName("blocked_topics")
+            .HasColumnType("jsonb")
+            .HasField("_blockedTopics")
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .IsRequired();
+
+        builder.Property(a => a.OutOfScopeReply)
+            .HasColumnName("out_of_scope_reply")
+            .HasMaxLength(AiAgent.OutOfScopeReplyMaxLength)
+            .IsRequired();
+
         builder.Property(a => a.IsEnabled).HasColumnName("is_enabled").IsRequired();
         builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired();
 
