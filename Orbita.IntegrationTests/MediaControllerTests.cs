@@ -40,7 +40,20 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
         var putResponse = await client.PutAsync(uploadUrl!.UploadUrl, new ByteArrayContent(bytes));
         Assert.Equal(HttpStatusCode.NoContent, putResponse.StatusCode);
 
-        var getResponse = await client.GetAsync(uploadUrl.UploadUrl);
+        // The upload token grants upload and nothing else. This used to reuse it for the
+        // GET and expect 200, which would have meant a presigned *upload* URL also handed
+        // out read access to the object it writes — the opposite of what the operation is
+        // baked into the token for.
+        var readWithTheUploadToken = await client.GetAsync(uploadUrl.UploadUrl);
+        Assert.Equal(HttpStatusCode.Forbidden, readWithTheUploadToken.StatusCode);
+
+        // Reading needs a token issued for reading, which is what the inbox asks for when
+        // it renders a message's media.
+        using var scope = _fixture.Services.CreateScope();
+        var signer = scope.ServiceProvider.GetRequiredService<IMediaUrlSigner>();
+        var readToken = signer.CreateToken("get", uploadUrl.Key, DateTimeOffset.UtcNow.AddMinutes(5));
+
+        var getResponse = await client.GetAsync($"/api/media/{readToken}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         Assert.Equal(bytes, await getResponse.Content.ReadAsByteArrayAsync());
     }
