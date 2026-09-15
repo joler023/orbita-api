@@ -130,6 +130,33 @@ public sealed class OpenAiCompatibleLlmProviderTests
     }
 
     [Fact]
+    public async Task A_tool_loop_sends_the_assistant_tool_calls_back_before_the_results()
+    {
+        // The second round of a tool loop. Without tool_calls on the assistant turn, the
+        // real API rejects the request outright: a tool message must answer a call made in
+        // the turn before it. Any fake that does not check the pairing would pass anyway.
+        var handler = StubHttpMessageHandler.RespondingWith("""
+            { "choices": [{ "message": { "content": "Listo, la registré." }, "finish_reason": "stop" }] }
+            """);
+
+        var request = Request with
+        {
+            Messages =
+            [
+                LlmMessage.User("quiero cotizar una torta"),
+                LlmMessage.AssistantToolCalls([new LlmToolCall("call_1", "crear_oportunidad", """{"titulo":"Torta"}""")]),
+                LlmMessage.Tool("call_1", """{"ok":true}"""),
+            ],
+        };
+
+        await Build(handler).CompleteAsync(request, CancellationToken.None);
+
+        var body = Assert.Single(handler.ReceivedBodies);
+        Assert.Contains("\"tool_calls\":[{\"id\":\"call_1\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"crear_oportunidad\"", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StreamAsync_reassembles_sse_deltas_and_ends_with_usage()
     {
         var handler = StubHttpMessageHandler.RespondingWithSse(
