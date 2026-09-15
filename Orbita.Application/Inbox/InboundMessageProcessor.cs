@@ -25,27 +25,39 @@ public sealed class InboundMessageProcessor(
     {
         var adapter = adapters.FirstOrDefault(a => a.Kind == webhookEvent.Kind)
             ?? throw new InvalidOperationException($"No channel adapter registered for {webhookEvent.Kind}.");
-        var account = await channelAccounts.GetByIdAsync(webhookEvent.ChannelAccountId, cancellationToken)
-            ?? throw new InvalidOperationException($"Channel account {webhookEvent.ChannelAccountId} not found.");
 
         var items = adapter.ParseInbound(webhookEvent.PayloadJson);
 
-        foreach (var item in items)
-        {
-            switch (item)
-            {
-                case InboundMessage message:
-                    await ProcessMessageAsync(webhookEvent.TenantId, account, adapter, message, cancellationToken);
-                    break;
-                case InboundStatusUpdate statusUpdate:
-                    await ProcessStatusUpdateAsync(webhookEvent.TenantId, statusUpdate, cancellationToken);
-                    break;
-            }
-        }
-
-        // One SaveChangesAsync for the whole event, not per message: a batch of several
+        // One transaction for the whole event, not per message: a batch of several
         // messages in one webhook payload either lands together or not at all.
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        //
+        // It has to be one transaction with the reads inside it, not a sequence of plain
+        // reads followed by SaveChangesAsync. Every lookup below — the contact by phone,
+        // the open conversation, the message by external id — is against an RLS'd table,
+        // and `app.tenant_id` only exists inside a transaction that sets it. Outside one,
+        // all three answer "nothing found": the second message a customer ever sends
+        // creates a duplicate contact and violates ix_contacts_tenant_phone, and the
+        // external-id idempotency check silently stops working.
+        await unitOfWork.ExecuteAndSaveInTenantScopeAsync(
+            async ct =>
+            {
+                var account = await channelAccounts.GetByIdAsync(webhookEvent.ChannelAccountId, ct)
+                    ?? throw new InvalidOperationException($"Channel account {webhookEvent.ChannelAccountId} not found.");
+
+                foreach (var item in items)
+                {
+                    switch (item)
+                    {
+                        case InboundMessage message:
+                            await ProcessMessageAsync(webhookEvent.TenantId, account, adapter, message, ct);
+                            break;
+                        case InboundStatusUpdate statusUpdate:
+                            await ProcessStatusUpdateAsync(webhookEvent.TenantId, statusUpdate, ct);
+                            break;
+                    }
+                }
+            },
+            cancellationToken);
     }
 
     /// <summary>ORB-B08: delivery receipts for a message this tenant sent. An unknown external id is logged and skipped, never an error — Meta can report on messages this instance never enqueued.</summary>
