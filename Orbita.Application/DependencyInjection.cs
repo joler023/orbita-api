@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IWhatsAppChannelService, WhatsAppChannelService>();
         services.AddScoped<IChannelWebhookVerificationService, ChannelWebhookVerificationService>();
         services.AddScoped<IChannelTokenExpiryService, ChannelTokenExpiryService>();
+        services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();
 
         // ORB-C02. The chunker is stateless, hence a singleton; everything else follows
         // the unit of work's scope.
