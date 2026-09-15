@@ -1,5 +1,6 @@
 using Moq;
 using Orbita.Application.Identity;
+using Orbita.Domain.Ai;
 using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
@@ -21,6 +22,7 @@ public sealed class OrganizationRegistrationServiceTests
     private readonly Mock<IPipelineStageRepository> _stages = new();
     private readonly Mock<ITenantContextSetter> _tenantContextSetter = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly Mock<IAiAgentRepository> _aiAgents = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
     private readonly OrganizationRegistrationService _sut;
 
@@ -36,6 +38,7 @@ public sealed class OrganizationRegistrationServiceTests
             _memberships.Object,
             _pipelines.Object,
             _stages.Object,
+            _aiAgents.Object,
             _tenantContextSetter.Object,
             _unitOfWork.Object,
             _passwordHasher.Object,

@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.IdentityModel.Tokens;
+using Orbita.Api.Configuration;
 using Orbita.Api.ErrorHandling;
 using Orbita.Api.Realtime;
 using Orbita.Application;
@@ -10,6 +11,13 @@ using Orbita.Infrastructure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Local secrets (the OpenRouter API key, chiefly) come from a .env at the repository
+// root, which is gitignored — see .env.example for the template and
+// DotEnvConfigurationExtensions for the format. Added last so it wins over
+// appsettings*.json, and skipped silently when the file is absent (production, CI, and
+// the integration tests all run without one).
+builder.Configuration.AddDotEnvFile(builder.Environment.ContentRootPath);
 
 // Add services to the container.
 

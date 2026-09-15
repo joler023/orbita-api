@@ -28,6 +28,19 @@ public sealed class LocalFileMediaStorage(IOptions<MediaOptions> options) : IMed
         return Task.FromResult<Stream?>(File.Exists(path) ? File.OpenRead(path) : null);
     }
 
+    /// <summary>Added for ORB-C02 — see <see cref="IMediaStorage.DeleteAsync"/>.</summary>
+    public Task DeleteAsync(string key, CancellationToken cancellationToken)
+    {
+        var path = ResolvePath(key);
+
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        return Task.CompletedTask;
+    }
+
     private string ResolvePath(string key)
     {
         var fullPath = Path.GetFullPath(Path.Combine(_root, key));

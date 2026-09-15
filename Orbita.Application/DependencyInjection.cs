@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Orbita.Application.Ai;
 using Orbita.Application.Audit;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
@@ -19,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IOrganizationRegistrationService, OrganizationRegistrationService>();
         services.AddScoped<IAuthenticationService, AuthenticationService>();
+        services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         services.AddScoped<ITeamInvitationService, TeamInvitationService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
@@ -43,6 +45,18 @@ public static class DependencyInjection
         services.AddScoped<IPipelineService, PipelineService>();
         services.AddScoped<IOpportunityService, OpportunityService>();
         services.AddScoped<IContactService, ContactService>();
+
+        // ORB-C02. The chunker is stateless, hence a singleton; everything else follows
+        // the unit of work's scope.
+        services.AddSingleton<ITextChunker, TextChunker>();
+        services.AddScoped<IAiRunRecorder, AiRunRecorder>();
+        services.AddScoped<IDocumentChunkBuilder, DocumentChunkBuilder>();
+        services.AddScoped<IKnowledgeIndexer, KnowledgeIndexer>();
+        services.AddScoped<IKnowledgeDocumentService, KnowledgeDocumentService>();
+        services.AddScoped<IKnowledgeSearchService, KnowledgeSearchService>();
+        services.AddScoped<IAiAgentService, AiAgentService>();
+        services.AddScoped<IAgentTestBenchService, AgentTestBenchService>();
+        services.AddScoped<IModelPreferenceService, ModelPreferenceService>();
 
         return services;
     }

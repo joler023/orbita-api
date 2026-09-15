@@ -1,3 +1,4 @@
+using Orbita.Domain.Ai;
 using Orbita.Domain.Common;
 using Orbita.Domain.Crm;
 using Orbita.Domain.Identity;
@@ -9,6 +10,10 @@ namespace Orbita.Application.Identity;
 /// Creates a Tenant, its owner User and the Owner Membership that links them, all in
 /// one transaction (ORB-A05). The tenant slug is derived from the business name and
 /// disambiguated with a numeric suffix on collision — the caller never picks a slug.
+///
+/// It also seeds one disabled AI assistant (ORB-C02), for the same reason ORB-D04 seeds
+/// a default pipeline: the owner should find something to configure rather than an empty
+/// screen. Disabled, so nothing starts answering customers unasked.
 /// </summary>
 public sealed class OrganizationRegistrationService(
     ITenantRepository tenantRepository,
@@ -16,6 +21,7 @@ public sealed class OrganizationRegistrationService(
     IMembershipRepository membershipRepository,
     IPipelineRepository pipelineRepository,
     IPipelineStageRepository pipelineStageRepository,
+    IAiAgentRepository aiAgentRepository,
     ITenantContextSetter tenantContextSetter,
     IUnitOfWork unitOfWork,
     IPasswordHasher passwordHasher,
@@ -44,6 +50,7 @@ public sealed class OrganizationRegistrationService(
         var passwordHash = passwordHasher.Hash(request.Password);
         var user = User.Create(normalizedEmail, passwordHash, request.FullName, now);
         var membership = Membership.CreateOwner(tenant.Id, user.Id, now);
+        var agent = AiAgent.CreateDefault(tenant.Id, tenant.Name, now);
 
         // The membership row is subject to Row Level Security, so the session's
         // acting tenant must be this brand-new tenant before it is inserted.
@@ -60,6 +67,7 @@ public sealed class OrganizationRegistrationService(
             await pipelineStageRepository.AddAsync(stage, cancellationToken);
         }
 
+        aiAgentRepository.Add(agent);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new RegisterOrganizationResult(

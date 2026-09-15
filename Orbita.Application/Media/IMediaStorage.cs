@@ -7,4 +7,13 @@ public interface IMediaStorage
 
     /// <returns>Null if no object exists for that key.</returns>
     Task<Stream?> OpenReadAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes an object. Added for ORB-C02, where deleting a knowledge document has to
+    /// take its file with it — a conversation's media is never deleted, so ORB-B06 had no
+    /// need for this.
+    ///
+    /// Best-effort: a key that is already gone is the desired end state, not an error.
+    /// </summary>
+    Task DeleteAsync(string key, CancellationToken cancellationToken);
 }
