@@ -94,6 +94,18 @@ public sealed class Message
 
     public Guid? AiRunId { get; }
 
+    /// <summary>
+    /// Who wrote this, derived from the two columns that already know. Inbound is always
+    /// <see cref="MessageAuthorKind.Human"/> — it is the customer writing.
+    /// </summary>
+    public MessageAuthorKind AuthorKind => (SentByUserId, AiRunId) switch
+    {
+        (not null, _) => MessageAuthorKind.Human,
+        (null, not null) => MessageAuthorKind.AiAgent,
+        _ when Direction == MessageDirection.Inbound => MessageAuthorKind.Human,
+        _ => MessageAuthorKind.System,
+    };
+
     public MessageStatus Status { get; private set; }
 
     public string? ErrorCode { get; private set; }
