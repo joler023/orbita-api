@@ -108,6 +108,26 @@ public sealed class Conversation : Entity
         LastMessagePreview = Truncate(preview);
     }
 
+    /// <summary>
+    /// Records which assistant is handling this thread (ORB-C04). The column has existed
+    /// since ORB-B03 but nothing ever filled it — an assistant that answers without
+    /// leaving that trace would make the inbox unable to say who wrote a reply, and
+    /// would let two different assistants answer alternate turns of one conversation.
+    ///
+    /// Idempotent, and deliberately not a reassignment: whichever assistant took the
+    /// conversation keeps it. Moving a live conversation to a different assistant is
+    /// ORB-C08's decision to make, not a side effect of answering a message.
+    /// </summary>
+    public void AssignAgent(Guid agentId)
+    {
+        if (agentId == Guid.Empty)
+        {
+            throw new ArgumentException("Agent id is required.", nameof(agentId));
+        }
+
+        AiAgentId ??= agentId;
+    }
+
     public bool IsWindowOpen(DateTimeOffset now) => WindowExpiresAt is { } expiresAt && now < expiresAt;
 
     /// <summary>Whether a free-form (non-template) message can be sent right now. B11 extends this for Instagram's human_agent tag.</summary>
