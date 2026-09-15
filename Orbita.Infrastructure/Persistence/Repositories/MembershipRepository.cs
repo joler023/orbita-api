@@ -19,6 +19,18 @@ public sealed class MembershipRepository(OrbitaDbContext dbContext) : IMembershi
     public Task<int> CountActiveByTenantAndRoleAsync(Guid tenantId, MemberRole role, CancellationToken cancellationToken)
         => dbContext.Memberships.CountAsync(m => m.TenantId == tenantId && m.IsActive && m.Role == role, cancellationToken);
 
+    /// <summary>
+    /// Crosses tenants on purpose (ORB-A16), so it only returns anything inside
+    /// <c>IUnitOfWork.QueryInUserScopeAsync</c>. <c>IgnoreQueryFilters</c> is <b>not</b>
+    /// used and must not be: with no ambient tenant the EF filter already lets everything
+    /// through, and Row Level Security — which EF cannot bypass — is what actually
+    /// restricts this to the one person's rows.
+    /// </summary>
+    public async Task<IReadOnlyList<Membership>> ListAcceptedByUserAsync(Guid userId, CancellationToken cancellationToken)
+        => await dbContext.Memberships
+            .Where(m => m.UserId == userId && m.IsActive && m.AcceptedAt != null)
+            .ToListAsync(cancellationToken);
+
     public async Task AddAsync(Membership membership, CancellationToken cancellationToken)
         => await dbContext.Memberships.AddAsync(membership, cancellationToken);
 }

@@ -25,4 +25,12 @@ public enum Permission
 
     /// <summary>Connect, re-verify, or disconnect a channel account (ORB-B01).</summary>
     ManageChannels,
+
+    /// <summary>
+    /// Configure the tenant's AI assistants and the documents they answer from
+    /// (ORB-C02/C10). Owner and Admin, like <see cref="ManageSettings"/> — an agent's
+    /// instructions and knowledge shape what customers are told, so it is not something
+    /// a Viewer or an Agent changes.
+    /// </summary>
+    ManageAiAgents,
 }

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Orbita.Application.Ai;
 using Orbita.Application.Billing;
 using Orbita.Application.Channels;
 using Orbita.Application.Identity;
@@ -39,6 +40,17 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             ChannelAlreadyConnectedException => (StatusCodes.Status409Conflict, "Channel already connected"),
             ChannelConnectionFailedException => (StatusCodes.Status502BadGateway, "Channel connection failed"),
             WebhookVerificationFailedException => (StatusCodes.Status403Forbidden, "Webhook verification failed"),
+            AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
+            CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
+            NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),
+            KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
+            UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),
+            // 413 rather than 400: the request was well formed, it was just too big.
+            DocumentTooLargeException => (StatusCodes.Status413PayloadTooLarge, "Document too large"),
+            // 502 rather than 500: the request was fine and this API is fine — the model
+            // provider behind it is not, and every configured one was already tried
+            // (ResilientLlmProvider). The caller can meaningfully retry.
+            LlmProviderException => (StatusCodes.Status502BadGateway, "Model provider unavailable"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
