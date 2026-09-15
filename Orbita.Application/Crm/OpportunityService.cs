@@ -215,6 +215,125 @@ public sealed class OpportunityService(
         return summary;
     }
 
+    public async Task<OpportunitySummary> CreateForAgentAsync(
+        Guid tenantId,
+        Guid agentId,
+        Guid contactId,
+        string title,
+        decimal? amount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        var (pipeline, stage) = await unitOfWork.QueryInTenantScopeAsync(
+            async ct =>
+            {
+                var pipelines = await pipelineRepository.GetByTenantAsync(tenantId, ct);
+                var defaultPipeline = pipelines.FirstOrDefault(p => p.IsDefault) ?? pipelines.FirstOrDefault()
+                    ?? throw new PipelineNotFoundException();
+                var stages = await stageRepository.GetByPipelineAsync(defaultPipeline.Id, ct);
+                var firstStage = stages.OrderBy(s => s.SortOrder).FirstOrDefault() ?? throw new StageNotFoundException();
+
+                return (defaultPipeline, firstStage);
+            },
+            cancellationToken);
+
+        await EnsureContactAsync(tenantId, contactId, cancellationToken);
+
+        var opportunity = Opportunity.Create(
+            tenantId, pipeline.Id, stage.Id, title.Trim(), amount, timeProvider.GetUtcNow(), assignedToUserId: null, contactId);
+
+        await opportunityRepository.AddAsync(opportunity, cancellationToken);
+        await auditLogger.RecordSystemActionAsync(
+            tenantId,
+            Orbita.Domain.Audit.AuditActorType.AiAgent,
+            "opportunity.created",
+            nameof(Opportunity),
+            opportunity.Id,
+            new { agentId, opportunity.Title, opportunity.StageId },
+            cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var summary = await ToSummaryAsync(opportunity, cancellationToken);
+        await realtimePublisher.PublishOpportunityChangedAsync(
+            tenantId,
+            new OpportunityChangedEvent(OpportunityChangedKind.Created, Guid.NewGuid(), summary),
+            cancellationToken);
+
+        return summary;
+    }
+
+    public async Task<OpportunitySummary?> MoveContactOpportunityForAgentAsync(
+        Guid tenantId,
+        Guid agentId,
+        Guid contactId,
+        string stageName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stageName);
+
+        var (opportunity, destination) = await unitOfWork.QueryInTenantScopeAsync<(Opportunity?, PipelineStage?)>(
+            async ct =>
+            {
+                // "Open" = not on a won or lost stage. Moving a deal the team already closed
+                // because a customer wrote again would reopen it behind their backs.
+                var candidates = await opportunityRepository.GetByContactAsync(contactId, ct);
+                Opportunity? latestOpen = null;
+
+                foreach (var candidate in candidates.Where(o => o.TenantId == tenantId).OrderByDescending(o => o.UpdatedAt))
+                {
+                    var currentStage = await stageRepository.GetByIdAsync(candidate.StageId, ct);
+                    if (currentStage is { IsWon: false, IsLost: false })
+                    {
+                        latestOpen = candidate;
+                        break;
+                    }
+                }
+
+                if (latestOpen is null)
+                {
+                    return (null, null);
+                }
+
+                var stages = await stageRepository.GetByPipelineAsync(latestOpen.PipelineId, ct);
+                var target = stages.FirstOrDefault(
+                    s => string.Equals(s.Name.Trim(), stageName.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new StageNotFoundException();
+
+                return (latestOpen, target);
+            },
+            cancellationToken);
+
+        if (opportunity is null || destination is null)
+        {
+            return null;
+        }
+
+        var eventId = Guid.NewGuid();
+        if (!opportunity.MoveToStage(destination.Id, eventId, timeProvider.GetUtcNow()))
+        {
+            return await ToSummaryAsync(opportunity, cancellationToken);
+        }
+
+        await auditLogger.RecordSystemActionAsync(
+            tenantId,
+            Orbita.Domain.Audit.AuditActorType.AiAgent,
+            "opportunity.moved",
+            nameof(Opportunity),
+            opportunity.Id,
+            new { agentId, stageId = destination.Id, eventId },
+            cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var summary = await ToSummaryAsync(opportunity, cancellationToken);
+        await realtimePublisher.PublishOpportunityChangedAsync(
+            tenantId,
+            new OpportunityChangedEvent(OpportunityChangedKind.Moved, eventId, summary),
+            cancellationToken);
+
+        return summary;
+    }
+
     private async Task EnsureContactAsync(Guid tenantId, Guid? contactId, CancellationToken cancellationToken)
     {
         if (contactId is null)
