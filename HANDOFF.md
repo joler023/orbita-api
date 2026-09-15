@@ -6,6 +6,8 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-15 (4)** — `fix/agent-delete-with-history`, encima de C04. Borrar un asistente que ya había corrido devolvía **500** (violación de la FK `RESTRICT` de `ai_runs`); ahora devuelve **409** con mensaje en español. Lo destapó la sesión del frontend preguntando qué le pasa a `conversations.ai_agent_id` cuando alguien usa el botón Eliminar de la pantalla 2.5, que ya está construido de su lado. Ver CLAUDE.md, "Borrar un asistente que ya trabajó".
+
 **2026-09-15 (2)** — **Dos bugs serios de Row Level Security, arreglados en `fix/outbound-reads-under-rls`.** Los encontró la primera corrida real contra una base con RLS aplicando de verdad; las pruebas de integración que debían haberlos detectado existían desde B03 y B05, pero nunca se habían ejecutado (sin Docker en aquella máquina).
 
 - **Ningún envío funcionaba.** `OutboundMessageService` leía `conversations` fuera de un scope de tenant, así que todo `POST .../conversations/{id}/messages` devolvía 404 sobre una conversación existente.

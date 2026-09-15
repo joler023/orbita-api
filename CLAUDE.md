@@ -231,6 +231,16 @@ The fix, and the rule for anything new:
 - `ExecuteInTenantScopeAsync` remains for bulk operations that save themselves (`ExecuteUpdate`/`ExecuteDelete`).
 
 `IUnitOfWork` gaining a member breaks every hand-written implementation of it in the test projects, and git does not mark that as a conflict — `Orbita.UnitTests/TestSupport/PassThroughUnitOfWork` is now the one shared implementation, so there is a single place to update.
+### Borrar un asistente que ya trabajó (corrección de ORB-C10)
+
+`DELETE /api/tenants/{tenantId}/ai-agents/{agentId}` devolvía **500** para cualquier asistente que hubiera corrido alguna vez: `ai_runs.agent_id` es `RESTRICT`, así que el borrado llegaba a Postgres y volvía como violación de clave foránea sin manejar. Alcanzaba con que el asistente hubiera indexado un documento (ORB-C02 registra un run por llamada de embedding), no hacía falta que respondiera nada.
+
+La FK es `RESTRICT` a propósito y no se cambia: `ai_runs` es el libro de consumo del que salen la medición de ORB-A13 y la facturación de ORB-A12, así que la historia de un asistente le sobrevive.
+
+Ahora `AiAgentService.DeleteAsync` pregunta primero (`IAiRunRepository.ExistsForAgentAsync`) y lanza `AgentHasHistoryException` → **409**, con un mensaje en español que el dashboard puede mostrar tal cual. Borrar sigue disponible para el caso que de verdad sirve —un asistente creado por error, que nunca atendió a nadie—; para todo lo demás ORB-C10 ya tenía el verbo correcto, `PATCH .../enabled`.
+
+Esto también cierra, sin necesitar una columna, la pregunta de qué pasa con `conversations.ai_agent_id` cuando se borra un asistente: esa columna **no tiene** clave foránea, así que un borrado dejaría el id colgando y el hilo sin poder decir quién contestó. Como un asistente solo llega a quedar asignado a una conversación después de responder —y responder siempre escribe un `ai_run`—, la misma guarda impide que eso ocurra.
+
 ### El agente responde (ORB-C04)
 
 First slice of Track C's Épica C2, and the first thing in this codebase that reacts to an outbox event: `AgentReplyIntegrationHandler` is the first `IIntegrationEventHandler` implementation — the seam ORB-B04 built had been empty until now.
