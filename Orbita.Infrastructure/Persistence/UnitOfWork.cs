@@ -39,6 +39,17 @@ public sealed class UnitOfWork(OrbitaDbContext dbContext, ITenantContext tenantC
         return result;
     }
 
+    public async Task ExecuteAndSaveInTenantScopeAsync(
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await SynchronizeTenantSessionAsync(cancellationToken);
+        await operation(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task ExecuteInTenantScopeAsync(
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken)

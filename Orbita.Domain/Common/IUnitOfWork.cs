@@ -38,6 +38,22 @@ public interface IUnitOfWork
     /// The same reasoning is why <c>IRefreshTokenRepository.RevokeFamilyAsync</c> can use
     /// a bare bulk update: `refresh_tokens` is deliberately not tenant-scoped.
     /// </summary>
+    /// <summary>
+    /// Reads, writes and saves in <b>one</b> transaction under the tenant's
+    /// <c>app.tenant_id</c>.
+    ///
+    /// <see cref="QueryInTenantScopeAsync{TResult}"/> and <see cref="SaveChangesAsync"/>
+    /// each open their own transaction, which is fine when a read decides something and a
+    /// later write acts on it. It is not fine when the write depends on having *found*
+    /// something first: `SET LOCAL` dies with its transaction, so a plain read between the
+    /// two runs with no tenant set, an RLS'd table answers "no rows", and the code
+    /// concludes the row does not exist and creates it again. That is how an inbound
+    /// message from a returning customer ends up inserting a duplicate contact.
+    /// </summary>
+    Task ExecuteAndSaveInTenantScopeAsync(
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken);
+
     Task ExecuteInTenantScopeAsync(
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken);
