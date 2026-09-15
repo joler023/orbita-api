@@ -287,6 +287,17 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 
 **Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `was_handoff`, `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — the first needs ORB-C07, the others have no consumer, and this repo does not pre-create columns for features that do not exist.
 
+### Enrutador (ORB-C08)
+
+`RoutingPolicy.Decide` (pure) picks who handles an inbound message; `AgentConversationResponder` asks it before resolving the assistant.
+
+- **Rules** (`routing_rules`, RLS'd, tenant-first index) are an ordered list: `{position, name, channel?, keyword?, agentId?}`. First match by position wins; `agentId` null means "leave it for the team". No match falls back to the tenant's enabled assistant — the pre-routing behaviour, so a tenant that never configures rules sees nothing change. `PUT /api/tenants/{tenantId}/routing/rules` replaces the whole list and **the array order is the evaluation order** ("visible y configurable"). A rule pointing at another tenant's assistant is refused (404); the FK to `ai_agents` is `RESTRICT`.
+- **Not in orbita-schema.dbml**, which has no routing table — an addition like `tenant_model_preferences`. The story also names *etiqueta* as a condition; there is no `tags` table yet, so that condition does not exist rather than existing and never matching.
+- **Sticky**: rules choose who takes a *new* conversation; one that already has an assistant keeps it (ORB-C04's invariant). They never bounce a live exchange between assistants.
+- **Keywords match whole words**, accent- and case-insensitive, via the same `WholeWordText` ORB-C06's blocked topics use.
+- **Business hours live on the assistant** (`ai_agents.business_hours`, jsonb, as the DBML specifies; null = always on), evaluated in `tenants.timezone`. `OutsideHours` is `AssistantAnswers` or `LeaveForTeam` — both halves of "fuera de horario puede contestar el agente o dejarse en cola". Checked *before* the assignment, so a message at 2am is not claimed by an assistant that then never answers. Overnight shifts are two slots; a slot that closes before it opens is refused. Unknown time zone → UTC, not a silenced assistant. `PUT .../ai-agents/{agentId}/business-hours`; not part of the draft.
+- Mapped with a value converter, not an owned JSON type: EF binds owned types through constructors it cannot satisfy for a positional record.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
