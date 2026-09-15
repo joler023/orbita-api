@@ -110,11 +110,14 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
             new { title = "Horarios", text = "La panadería abre de 7 a.m. a 7 p.m. de lunes a sábado." });
         knowledge.EnsureSuccessStatusCode();
 
-        await Eventually.AssertAsync(async () =>
+        // The fixture removes the background indexer on purpose, so a document is only
+        // chunked when a test asks for it. Waiting instead of asking waits forever.
+        await IndexAllAsync();
+
+        await using (var owner = _fixture.CreateOwnerDbContext())
         {
-            await using var db = _fixture.CreateOwnerDbContext();
-            return await db.KnowledgeChunks.AnyAsync(c => c.TenantId == tenantId);
-        });
+            Assert.True(await owner.KnowledgeChunks.AnyAsync(c => c.TenantId == tenantId));
+        }
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573009990000", externalId, "¿a qué hora abren?"));
@@ -196,6 +199,20 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
         // Connect *and* verify: without the handshake the account stays
         // PendingVerification and every send is refused. See the helper.
         => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
+
+    /// <summary>Drains the indexing queue the way the other ORB-C02/C03 tests do.</summary>
+    private async Task IndexAllAsync()
+    {
+        for (var pass = 0; pass < 20; pass++)
+        {
+            using var scope = _fixture.Services.CreateScope();
+
+            if (await scope.ServiceProvider.GetRequiredService<IKnowledgeIndexer>().IndexPendingAsync(CancellationToken.None) == 0)
+            {
+                return;
+            }
+        }
+    }
 
     private static async Task SendWebhookAsync(HttpClient client, byte[] body)
     {
