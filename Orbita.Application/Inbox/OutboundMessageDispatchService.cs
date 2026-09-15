@@ -30,14 +30,35 @@ public sealed class OutboundMessageDispatchService(
     {
         await rateLimiter.AcquireAsync(job.ChannelAccountId, cancellationToken);
 
-        var message = await messages.GetByIdAsync(job.MessageId, cancellationToken)
-            ?? throw new MessageNotFoundException();
-        var conversation = await conversations.GetByIdAsync(message.ConversationId, cancellationToken)
-            ?? throw new ConversationNotFoundException();
-        var contact = await contacts.GetByIdAsync(conversation.ContactId, cancellationToken)
-            ?? throw new ContactNotFoundException();
-        var account = await channelAccounts.GetByIdAsync(job.ChannelAccountId, cancellationToken)
-            ?? throw new ChannelAccountNotFoundException();
+        // Load, send, save — in that order, and the load in its own tenant-scoped
+        // transaction. `messages`, `conversations` and `contacts` are all RLS'd, so a
+        // plain read here finds nothing and every dispatch dies on MessageNotFound.
+        //
+        // Deliberately not one transaction around the whole method: the send in the
+        // middle is an HTTP round trip to Meta, and holding a database transaction open
+        // across it would tie a connection to the slowest thing in the pipeline. The
+        // entities stay tracked by this scope's DbContext, so the SaveChangesAsync at the
+        // end still persists what the send decided.
+        var loaded = await unitOfWork.QueryInTenantScopeAsync(
+            async ct =>
+            {
+                var message = await messages.GetByIdAsync(job.MessageId, ct)
+                    ?? throw new MessageNotFoundException();
+                var conversation = await conversations.GetByIdAsync(message.ConversationId, ct)
+                    ?? throw new ConversationNotFoundException();
+                var contact = await contacts.GetByIdAsync(conversation.ContactId, ct)
+                    ?? throw new ContactNotFoundException();
+                var account = await channelAccounts.GetByIdAsync(job.ChannelAccountId, ct)
+                    ?? throw new ChannelAccountNotFoundException();
+                var template = message.TemplateId is { } templateId
+                    ? await messageTemplates.GetByIdAsync(templateId, ct) ?? throw new TemplateNotFoundException()
+                    : null;
+
+                return (Message: message, Conversation: conversation, Contact: contact, Account: account, Template: template);
+            },
+            cancellationToken);
+
+        var (message, conversation, contact, account, template) = loaded;
         var adapter = adapters.First(a => a.Kind == account.Kind);
 
         var now = timeProvider.GetUtcNow();
@@ -49,8 +70,8 @@ public sealed class OutboundMessageDispatchService(
                 throw new ChannelSendException("no_recipient_id", isTransient: false, "The contact has no identifier for this channel.");
             }
 
-            var externalId = message.TemplateId is { } templateId
-                ? await SendTemplateAsync(account, adapter, toExternalId, message, templateId, cancellationToken)
+            var externalId = template is not null
+                ? await SendTemplateAsync(account, adapter, toExternalId, message, template, cancellationToken)
                 : message.MediaKey is null
                     ? await adapter.SendTextAsync(account, toExternalId, message.Body ?? string.Empty, cancellationToken)
                     : await SendMediaAsync(account, adapter, toExternalId, message, cancellationToken);
@@ -98,10 +119,8 @@ public sealed class OutboundMessageDispatchService(
         }
     }
 
-    private async Task<string> SendTemplateAsync(ChannelAccount account, IChannelAdapter adapter, string toExternalId, Message message, Guid templateId, CancellationToken cancellationToken)
+    private async Task<string> SendTemplateAsync(ChannelAccount account, IChannelAdapter adapter, string toExternalId, Message message, MessageTemplate template, CancellationToken cancellationToken)
     {
-        var template = await messageTemplates.GetByIdAsync(templateId, cancellationToken)
-            ?? throw new TemplateNotFoundException();
         var variables = JsonSerializer.Deserialize<List<string>>(message.TemplateVariablesJson ?? "[]") ?? [];
 
         return await adapter.SendTemplateAsync(account, toExternalId, template.MetaTemplateName, template.Language, variables, cancellationToken);
