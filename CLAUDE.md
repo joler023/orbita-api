@@ -257,6 +257,19 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **A message with no text is not answered at all.** An image with no caption, a sticker, a location: replying "no entendí" to every photo a customer sends is worse than letting a person look at it.
 - **Known gaps:** the `HumanIsHandlingIt` guard can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15 — so it's written and unproven. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
 
+### Guardrails (ORB-C06)
+
+`AgentGuardrails` (Domain, pure) decides when the assistant must not answer and when what it produced must not be sent. `AgentConversationResponder` asks it twice: before the model call (`InspectIncoming`: blocked topic, too many replies in the 24h window, a loop) and after (`InspectReply`: empty, longer than WhatsApp's 4096, transcribed its own scaffolding, identical to its previous reply).
+
+- **Blocked topics are not part of the draft.** `PUT /api/tenants/{tenantId}/ai-agents/{agentId}/guardrails` applies immediately, like `PATCH .../enabled`. A setting whose purpose is to make the assistant *stop* talking about something cannot wait for Publicar. `SaveAiAgentBody` does not carry it.
+- **Whole-word matching, not substring**, case- and accent-insensitive. Substring would fire "talla" on "pantalla", "precio" on "apreciamos", "cita" on "felicitaciones" — and the failure is silence, which nobody can diagnose from outside. Accepted cost: "precio" does not catch "precios"; the owner adds the plural. Pinned by `AgentGuardrailsTests` so nobody "fixes" it back.
+- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso", because ORB-C07 does not exist and nobody is notified.
+- **An out-of-scope subject gets that sentence; a loop or an exhausted window gets silence.** The last two mean the assistant already said too much.
+- **Every block stages `agent.reply_blocked`** `{conversationId, agentId, reason, topic}`. `topic` is a *deliberate exception* to the outbox's ids-and-enums rule: it is free text the owner wrote (their configuration, not customer data), and it is the only thing that answers "why did my assistant go quiet?".
+- The out-of-scope reply is sent through `IOutboundMessageService.SendSystemReplyAsync` and lands as `authorKind: "System"` — the first producer of that value.
+- "Ninguna respuesta contiene datos de otro cliente" is not a filter here, deliberately: retrieval is scoped by tenant and agent under RLS, so it is enforced by construction and proven by the isolation tests (which carry a positive control — see HANDOFF).
+- Limits: 50 topics, 120 chars each, trimmed, blanks dropped (an empty topic would match every message), duplicates dropped case-insensitively.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
