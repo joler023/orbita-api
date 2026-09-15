@@ -80,6 +80,13 @@ public sealed class KnowledgeSearchApiTests(TenantsApiFixture fixture) : IClassF
         // Tenant B asks the exact question that would match tenant A's secret.
         var hits = await SearchAsync(client, cookiesB, tenantB, agentB.Id, secret);
 
+        // Positive control first, and it is the whole point of it being first: every
+        // assertion below passes vacuously on an empty result — `DoesNotContain` trivially,
+        // `Assert.All` trivially — so a search that returned nothing for *any* reason would
+        // certify isolation without having tested it. An isolation test that fails open is
+        // worse than no isolation test, because it is green and nobody looks at it again.
+        Assert.NotEmpty(hits);
+
         Assert.DoesNotContain(hits, hit => hit.Content.Contains("margen", StringComparison.OrdinalIgnoreCase));
         Assert.All(hits, hit => Assert.Equal("Propio", hit.DocumentTitle));
     }
@@ -98,6 +105,11 @@ public sealed class KnowledgeSearchApiTests(TenantsApiFixture fixture) : IClassF
         await AddNoteAsync(client, cookies, tenantId, sales.Id, "Descuentos", salesOnly);
         await AddNoteAsync(client, cookies, tenantId, support.Id, "Soporte", "Atendemos reclamos por WhatsApp.");
         await IndexAllAsync();
+
+        // Same positive control, for the same reason: support has to actually find its
+        // own material, or "it did not find sales' material" proves nothing.
+        var supportOwn = await SearchAsync(client, cookies, tenantId, support.Id, "¿Por dónde atienden reclamos?");
+        Assert.Contains(supportOwn, hit => hit.DocumentTitle == "Soporte");
 
         var hits = await SearchAsync(client, cookies, tenantId, support.Id, salesOnly);
 

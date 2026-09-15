@@ -194,6 +194,13 @@ public sealed class KnowledgeBaseApiTests(TenantsApiFixture fixture) : IClassFix
         var document = await response.Content.ReadFromJsonAsync<KnowledgeDocumentDto>(TestRequests.JsonOptions);
         await RunIndexerAsync();
 
+        // Positive control: tenant A can see its own document. Without this, every
+        // assertion below would also hold if the document had never been created, or if
+        // the reads answered nothing for an unrelated reason — and the test would report
+        // isolation that was never exercised.
+        var listA = await ListAsync(client, cookiesA, tenantA, agentA.Id);
+        Assert.Contains(listA.Items, item => item.Id == document!.Id);
+
         var (_, _, tenantB, cookiesB) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Otra Empresa");
 
         var deleteAcrossTenants = await TestRequests.SendAsync(
