@@ -25,6 +25,7 @@ public sealed class AgentConversationResponderTests
     private readonly Mock<ILlmProvider> _llm = new();
     private readonly Mock<IAiRunRecorder> _runs = new();
     private readonly Mock<IOutboundMessageService> _outbound = new();
+    private readonly Mock<Orbita.Application.Outbox.IOutboxWriter> _outbox = new();
     private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly MutableTimeProvider _time = new(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
 
@@ -57,6 +58,11 @@ public sealed class AgentConversationResponderTests
             .ReturnsAsync(() => MessageDto.From(
                 Message.OutboundAgentText(_tenantId, Guid.NewGuid(), "Sí, abrimos hasta las 7.", _runId, _time.GetUtcNow())));
 
+        _outbound
+            .Setup(o => o.SendSystemReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => MessageDto.From(
+                Message.OutboundText(_tenantId, Guid.NewGuid(), "sistema", null, MessageCategory.Service, _time.GetUtcNow())));
+
         _sut = new AgentConversationResponder(
             _conversations.Object,
             _messages.Object,
@@ -65,6 +71,7 @@ public sealed class AgentConversationResponderTests
             _llm.Object,
             _runs.Object,
             _outbound.Object,
+            _outbox.Object,
             _unitOfWork,
             _time,
             NullLogger<AgentConversationResponder>.Instance);
@@ -291,6 +298,87 @@ public sealed class AgentConversationResponderTests
         _outbound.Verify(
             o => o.SendAgentReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task A_blocked_topic_gets_the_owners_sentence_and_no_model_call()
+    {
+        var agent = Agent();
+        agent.SetGuardrails(["dosis"], "Eso lo ve mejor el equipo médico, escríbeles directamente.");
+        var (conversation, inbound) = OpenConversation("¿Qué dosis de ibuprofeno me tomo?");
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.BlockedByGuardrail, outcome.Decision);
+        Assert.Equal(GuardrailReason.OutOfScopeTopic, outcome.GuardrailReason);
+
+        // The owner's words, not ours — and nothing paid for, because the point of
+        // blocking before the call is that the model never gets near the subject.
+        _outbound.Verify(
+            o => o.SendSystemReplyAsync(_tenantId, conversation.Id, "Eso lo ve mejor el equipo médico, escríbeles directamente.", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Every_block_is_recorded_with_the_topic_that_caused_it()
+    {
+        var agent = Agent();
+        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply);
+        var (conversation, inbound) = OpenConversation("¿qué dosis tomo?");
+
+        await RespondAsync(conversation, inbound);
+
+        // A silenced assistant is the hardest thing in the product to diagnose from
+        // outside, so the record has to name the word that did it.
+        _outbox.Verify(
+            o => o.StageAsync(
+                _tenantId, nameof(AiAgent), agent.Id, "agent.reply_blocked",
+                It.Is<object>(payload => payload.ToString()!.Contains("dosis")),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_conversation_that_has_had_enough_answers_in_the_window_is_left_alone()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation();
+        _messages
+            .Setup(r => r.CountAgentRepliesSinceAsync(_tenantId, conversation.Id, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AgentGuardrails.MaxRepliesPerWindow);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(GuardrailReason.TooManyRepliesInWindow, outcome.GuardrailReason);
+
+        // Silence, not a sentence: the assistant has already said too much, and one more
+        // line would be the failure repeating itself.
+        _outbound.Verify(
+            o => o.SendSystemReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_reply_identical_to_the_previous_one_is_not_sent()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation();
+        var earlier = Message.OutboundAgentText(_tenantId, conversation.Id, "Sí, abrimos hasta las 7.", _runId, _time.GetUtcNow());
+        _messages
+            .Setup(r => r.GetRecentByConversationAsync(_tenantId, conversation.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([earlier, inbound]);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(GuardrailReason.RepeatedItself, outcome.GuardrailReason);
+        _outbound.Verify(
+            o => o.SendAgentReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // Paid for, so still owed to the ledger even though nothing went out.
+        Assert.Equal(1, _unitOfWork.SaveCount);
     }
 
     /// <summary>

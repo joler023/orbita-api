@@ -71,6 +71,62 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
+    public async Task A_blocked_topic_is_answered_with_the_owners_sentence_immediately()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var account = await ConnectAsync(client, tenantId, cookies);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        // Through the subresource, not the draft: saving must take effect without Publicar.
+        var guardrails = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/guardrails", cookies,
+            new { blockedTopics = new[] { "dosis" }, outOfScopeReply = "Eso lo ve el equipo médico, escríbeles directamente." });
+        guardrails.EnsureSuccessStatusCode();
+
+        var dto = (await guardrails.Content.ReadFromJsonAsync<AiAgentDto>(TestRequests.JsonOptions))!;
+        Assert.Equal(["dosis"], dto.Guardrails.BlockedTopics);
+        Assert.False(dto.HasUnpublishedChanges);
+
+        var externalId = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001112299", externalId, "¿qué dosis tomo?"));
+
+        var reply = await WaitForAgentReplyAsync(externalId);
+
+        Assert.Equal("Eso lo ve el equipo médico, escríbeles directamente.", reply.Body);
+
+        // Neither a person nor the model wrote it.
+        Assert.Equal(MessageAuthorKind.System, reply.AuthorKind);
+        Assert.Null(reply.AiRunId);
+
+        await using var owner = _fixture.CreateOwnerDbContext();
+        Assert.True(await owner.Set<Orbita.Domain.Outbox.OutboxEvent>()
+            .AnyAsync(e => e.EventType == "agent.reply_blocked" && e.TenantId == tenantId));
+    }
+
+    [Fact]
+    public async Task An_ordinary_word_containing_a_blocked_topic_is_still_answered()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var account = await ConnectAsync(client, tenantId, cookies);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        (await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/guardrails", cookies,
+            new { blockedTopics = new[] { "talla" }, outOfScopeReply = "No hablo de tallas." })).EnsureSuccessStatusCode();
+
+        _fixture.Llm.NextReply = "Probá recargar la página, suele arreglarlo.";
+        var externalId = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001112288", externalId, "no me carga la pantalla"));
+
+        var reply = await WaitForAgentReplyAsync(externalId);
+
+        // "pantalla" contains "talla". Substring matching would have silenced this.
+        Assert.Equal(MessageAuthorKind.AiAgent, reply.AuthorKind);
+    }
+
+    [Fact]
     public async Task A_disabled_assistant_never_answers()
     {
         var client = TestRequests.CreateClient(_fixture);
