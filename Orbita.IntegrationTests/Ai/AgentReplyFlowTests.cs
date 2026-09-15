@@ -127,6 +127,71 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
+    public async Task The_assistant_registers_an_opportunity_for_the_customer_it_is_talking_to()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var account = await ConnectAsync(client, tenantId, cookies);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+        await EnableToolsAsync(client, tenantId, cookies, agentId, AiToolCatalog.CrearOportunidad);
+
+        _fixture.Llm.NextToolCalls.Add(new LlmToolCall("call_1", AiToolCatalog.CrearOportunidad, """{"titulo":"Torta para 30 personas","monto":180000}"""));
+        _fixture.Llm.NextReply = "Listo, dejé registrado tu pedido.";
+
+        var externalId = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001234000", externalId, "quiero una torta para 30 personas"));
+
+        var reply = await WaitForAgentReplyAsync(externalId);
+        Assert.Equal("Listo, dejé registrado tu pedido.", reply.Body);
+
+        await using var owner = _fixture.CreateOwnerDbContext();
+        var conversation = await owner.Conversations.AsNoTracking().SingleAsync(c => c.Id == reply.ConversationId);
+
+        // On the right contact, and audited as the assistant — criteria of the story.
+        var opportunity = await owner.Opportunities.AsNoTracking().SingleAsync(o => o.ContactId == conversation.ContactId);
+        Assert.Equal("Torta para 30 personas", opportunity.Title);
+        Assert.Equal(180000m, opportunity.Amount);
+
+        Assert.True(await owner.AuditLogEntries.AsNoTracking().AnyAsync(e =>
+            e.EntityId == opportunity.Id
+            && e.Action == "opportunity.created"
+            && e.ActorType == Orbita.Domain.Audit.AuditActorType.AiAgent));
+    }
+
+    [Fact]
+    public async Task An_assistant_cannot_create_anything_in_another_tenant()
+    {
+        var client = TestRequests.CreateClient(_fixture);
+
+        var (_, _, victimTenant, victimCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Víctima");
+        await using (var before = _fixture.CreateOwnerDbContext())
+        {
+            // Positive control for the negative below: the victim's board is readable here.
+            Assert.True(await before.Pipelines.AsNoTracking().AnyAsync(p => p.TenantId == victimTenant));
+        }
+
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Atacante");
+        var account = await ConnectAsync(client, tenantId, cookies);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+        await EnableToolsAsync(client, tenantId, cookies, agentId, AiToolCatalog.CrearOportunidad);
+
+        // The model names the other tenant outright. The executor never reads it.
+        _fixture.Llm.NextToolCalls.Add(new LlmToolCall(
+            "call_1",
+            AiToolCatalog.CrearOportunidad,
+            $$"""{"titulo":"Intruso","tenantId":"{{victimTenant}}"}"""));
+        _fixture.Llm.NextReply = "Hecho.";
+
+        var externalId = $"wamid.{Guid.NewGuid():N}";
+        await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573001234111", externalId, "hola"));
+        await WaitForAgentReplyAsync(externalId);
+
+        await using var owner = _fixture.CreateOwnerDbContext();
+        Assert.False(await owner.Opportunities.AsNoTracking().AnyAsync(o => o.TenantId == victimTenant));
+        Assert.True(await owner.Opportunities.AsNoTracking().AnyAsync(o => o.TenantId == tenantId && o.Title == "Intruso"));
+    }
+
+    [Fact]
     public async Task A_disabled_assistant_never_answers()
     {
         var client = TestRequests.CreateClient(_fixture);
@@ -255,6 +320,30 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
         // Connect *and* verify: without the handshake the account stays
         // PendingVerification and every send is refused. See the helper.
         => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
+
+    /// <summary>
+    /// Enables tools through the real screen path: save a draft, then publish. Tools are
+    /// part of the draft (unlike guardrails), so without publishing the live assistant
+    /// would still have none.
+    /// </summary>
+    private static async Task EnableToolsAsync(HttpClient client, Guid tenantId, CookieJar cookies, Guid agentId, params string[] tools)
+    {
+        var draft = await TestRequests.SendAsync(
+            client, HttpMethod.Patch, $"/api/tenants/{tenantId}/ai-agents/{agentId}", cookies,
+            new
+            {
+                name = "Asistente",
+                personality = "Amable y resolutivo.",
+                instructions = "Registra pedidos cuando el cliente quiere comprar.",
+                style = new { formality = "Balanced", verbosity = "Balanced", energy = "Balanced" },
+                tools,
+            });
+        draft.EnsureSuccessStatusCode();
+
+        var publish = await TestRequests.SendAsync(
+            client, HttpMethod.Post, $"/api/tenants/{tenantId}/ai-agents/{agentId}/publish", cookies);
+        publish.EnsureSuccessStatusCode();
+    }
 
     /// <summary>Drains the indexing queue the way the other ORB-C02/C03 tests do.</summary>
     private async Task IndexAllAsync()

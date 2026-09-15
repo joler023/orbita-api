@@ -37,10 +37,33 @@ public sealed class FakeLlmProvider : ILlmProvider
     /// <summary>Set to control what the next completion answers.</summary>
     public string NextReply { get; set; } = "respuesta de prueba";
 
+    /// <summary>
+    /// Tool calls the next completion should ask for, when tools are offered. Consumed on
+    /// use, so the following round answers with <see cref="NextReply"/> — which is the
+    /// shape of a real single-round tool exchange (ORB-C05).
+    /// </summary>
+    public List<LlmToolCall> NextToolCalls { get; } = [];
+
+    /// <summary>Every request, in order, so a test can inspect each round of a tool loop.</summary>
+    public List<LlmCompletionRequest> CompletionRequests { get; } = [];
+
     public Task<LlmCompletionResult> CompleteAsync(LlmCompletionRequest request, CancellationToken cancellationToken)
     {
         LastCompletionRequest = request;
+        lock (CompletionRequests)
+        {
+            CompletionRequests.Add(request);
+        }
+
         ThrowIfScripted();
+
+        if (request.Tools is { Count: > 0 } && NextToolCalls.Count > 0)
+        {
+            var calls = NextToolCalls.ToList();
+            NextToolCalls.Clear();
+
+            return Task.FromResult(new LlmCompletionResult(null, calls, Usage("fake-chat")));
+        }
 
         return Task.FromResult(new LlmCompletionResult(NextReply, [], Usage("fake-chat")));
     }
@@ -109,5 +132,10 @@ public sealed class FakeLlmProvider : ILlmProvider
         LastCompletionRequest = null;
         NextReply = "respuesta de prueba";
         NextFailure = null;
+        NextToolCalls.Clear();
+        lock (CompletionRequests)
+        {
+            CompletionRequests.Clear();
+        }
     }
 }

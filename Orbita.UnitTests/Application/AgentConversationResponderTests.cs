@@ -26,6 +26,7 @@ public sealed class AgentConversationResponderTests
     private readonly Mock<IAiRunRecorder> _runs = new();
     private readonly Mock<IOutboundMessageService> _outbound = new();
     private readonly Mock<Orbita.Application.Outbox.IOutboxWriter> _outbox = new();
+    private readonly Mock<IAgentToolExecutor> _tools = new();
     private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly MutableTimeProvider _time = new(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
 
@@ -63,6 +64,8 @@ public sealed class AgentConversationResponderTests
             .ReturnsAsync(() => MessageDto.From(
                 Message.OutboundText(_tenantId, Guid.NewGuid(), "sistema", null, MessageCategory.Service, _time.GetUtcNow())));
 
+        _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>())).Returns([]);
+
         _sut = new AgentConversationResponder(
             _conversations.Object,
             _messages.Object,
@@ -72,6 +75,7 @@ public sealed class AgentConversationResponderTests
             _runs.Object,
             _outbound.Object,
             _outbox.Object,
+            _tools.Object,
             _unitOfWork,
             _time,
             NullLogger<AgentConversationResponder>.Instance);
@@ -379,6 +383,61 @@ public sealed class AgentConversationResponderTests
 
         // Paid for, so still owed to the ledger even though nothing went out.
         Assert.Equal(1, _unitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task A_tool_call_runs_and_the_model_is_asked_again_with_the_result()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("quiero cotizar una torta para 30 personas");
+        var tool = new LlmTool(AiToolCatalog.CrearOportunidad, "crea", "{}");
+        _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>())).Returns([tool]);
+
+        var call = new LlmToolCall("call_1", AiToolCatalog.CrearOportunidad, """{"titulo":"Torta 30 personas"}""");
+        _llm.SetupSequence(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmCompletionResult(null, [call], Usage))
+            .ReturnsAsync(new LlmCompletionResult("Listo, la dejé registrada.", [], Usage));
+        _tools
+            .Setup(t => t.ExecuteAsync(It.IsAny<AgentToolContext>(), call, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentToolResult(AiToolCatalog.CrearOportunidad, true, """{"ok":true}"""));
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
+
+        // The tool acts on this conversation's contact and tenant — fixed by us, not the model.
+        _tools.Verify(t => t.ExecuteAsync(
+            It.Is<AgentToolContext>(c => c.TenantId == _tenantId && c.ContactId == conversation.ContactId && c.ConversationId == conversation.Id),
+            call, It.IsAny<CancellationToken>()), Times.Once);
+
+        // Two paid calls, two runs.
+        _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), conversation.Id), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task A_model_that_keeps_calling_tools_is_cut_off_and_still_answers()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("hola");
+        _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>())).Returns([new LlmTool(AiToolCatalog.MoverEtapa, "mueve", "{}")]);
+        _tools
+            .Setup(t => t.ExecuteAsync(It.IsAny<AgentToolContext>(), It.IsAny<LlmToolCall>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentToolResult(AiToolCatalog.MoverEtapa, false, """{"ok":false}"""));
+
+        var requests = new List<LlmCompletionRequest>();
+        _llm
+            .Setup(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
+            .Callback((LlmCompletionRequest request, CancellationToken _) => requests.Add(request))
+            .ReturnsAsync((LlmCompletionRequest request, CancellationToken _) => request.Tools is { Count: > 0 }
+                ? new LlmCompletionResult(null, [new LlmToolCall(Guid.NewGuid().ToString(), AiToolCatalog.MoverEtapa, """{"etapa":"X"}""")], Usage)
+                : new LlmCompletionResult("Te ayudo con eso.", [], Usage));
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        // Bounded: three rounds with tools, then one without, and the customer gets text.
+        Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
+        Assert.Equal(AgentConversationResponder.MaxToolRounds + 1, requests.Count);
+        Assert.Null(requests[^1].Tools);
     }
 
     /// <summary>

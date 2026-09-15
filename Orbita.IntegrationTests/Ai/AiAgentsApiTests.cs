@@ -293,7 +293,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 personality = "Eres persuasivo.",
                 instructions = "Cierras ventas.",
                 style = Style("Balanced", "Balanced", "Balanced"),
-                tools = new[] { AiToolCatalog.CrearOportunidad },
+                tools = new[] { AiToolCatalog.AgendarCita },
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -319,7 +319,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
                 personality = "Eres persuasivo.",
                 instructions = "Cierras ventas.",
                 style = Style("Balanced", "Balanced", "Balanced"),
-                tools = new[] { AiToolCatalog.CrearOportunidad },
+                tools = new[] { AiToolCatalog.AgendarCita },
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -477,7 +477,7 @@ public sealed class AiAgentsApiTests(TenantsApiFixture fixture) : IClassFixture<
         Assert.Equal(5, tools!.Count);
         Assert.True(tools.Single(tool => tool.Key == AiToolCatalog.ConsultarConocimiento).IsAvailable);
 
-        var pending = tools.Single(tool => tool.Key == AiToolCatalog.CrearOportunidad);
+        var pending = tools.Single(tool => tool.Key == AiToolCatalog.AgendarCita);
         Assert.False(pending.IsAvailable);
         Assert.False(string.IsNullOrWhiteSpace(pending.UnavailableReason));
     }
