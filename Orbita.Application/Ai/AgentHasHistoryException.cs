@@ -11,8 +11,13 @@ namespace Orbita.Application.Ai;
 /// Deleting stays available for the case it actually serves: an assistant created by
 /// mistake, that never answered anyone. For every other case ORB-C10 already shipped the
 /// right verb — <c>PATCH .../enabled</c>, "activar y desactivar el agente sin borrarlo".
+///
+/// The message is in tuteo, like every other Spanish string this backend produces and
+/// like the sibling error next to it on the same screen ("No puedes eliminar tu único
+/// asistente"). Two errors from one screen speaking to someone in two different
+/// registers reads as two different products.
 /// </summary>
 public sealed class AgentHasHistoryException()
     : InvalidOperationException(
         "Este asistente ya atendió conversaciones, así que no se puede eliminar. "
-        + "Desactivalo si querés que deje de responder.");
+        + "Desactívalo si no quieres que siga respondiendo.");
