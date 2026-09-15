@@ -74,4 +74,10 @@ public enum AgentReplyDecision
     /// one window, a loop, or a reply that failed validation.
     /// </summary>
     BlockedByGuardrail,
+
+    /// <summary>A routing rule sent this conversation to the team rather than an assistant (ORB-C08).</summary>
+    LeftForTeamByRule,
+
+    /// <summary>Outside the assistant's hours, and it is configured to leave it for the team (ORB-C08).</summary>
+    OutsideBusinessHours,
 }

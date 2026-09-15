@@ -15,6 +15,9 @@ public sealed class AgentConversationResponder(
     IOutboundMessageService outboundMessages,
     Orbita.Application.Outbox.IOutboxWriter outboxWriter,
     IAgentToolExecutor toolExecutor,
+    IRoutingRuleRepository routingRules,
+    Orbita.Domain.Channels.IChannelAccountRepository channelAccounts,
+    Orbita.Domain.Tenants.ITenantRepository tenants,
     Orbita.Domain.Common.IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<AgentConversationResponder> logger) : IAgentConversationResponder
@@ -290,10 +293,22 @@ public sealed class AgentConversationResponder(
                 return ReplyContext.Skip(AgentReplyDecision.ServiceWindowClosed);
             }
 
-            // A conversation keeps whichever assistant first answered it; one that has
-            // none yet gets the tenant's enabled assistant, and records that choice.
-            var agent = conversation.AiAgentId is { } assigned
-                ? await agents.GetByIdAsync(tenantId, assigned, ct)
+            // ORB-C08. A conversation keeps whichever assistant took it; a new one is
+            // routed by the tenant's ordered rules, and with no matching rule it falls back
+            // to the tenant's enabled assistant — exactly the behaviour before routing, so
+            // a tenant that never configures rules sees no change.
+            var channel = (await channelAccounts.GetByIdAsync(conversation.ChannelAccountId, ct))?.Kind
+                ?? Orbita.Domain.Channels.ChannelKind.WhatsApp;
+            var decision = RoutingPolicy.Decide(
+                await routingRules.ListByTenantAsync(tenantId, ct), conversation.AiAgentId, channel, message.Body);
+
+            if (decision.LeaveForTeam)
+            {
+                return ReplyContext.Skip(AgentReplyDecision.LeftForTeamByRule);
+            }
+
+            var agent = decision.AgentId is { } routed
+                ? await agents.GetByIdAsync(tenantId, routed, ct)
                 : await agents.FindEnabledByTenantAsync(tenantId, ct);
 
             if (agent is null)
@@ -304,6 +319,19 @@ public sealed class AgentConversationResponder(
             if (!agent.IsEnabled)
             {
                 return ReplyContext.Skip(AgentReplyDecision.AgentDisabled);
+            }
+
+            // Outside its hours, an assistant configured to leave it for the team stays
+            // quiet — checked before the assignment, so a conversation that arrives at 2am
+            // is not claimed by an assistant that then never answers it.
+            if (agent.BusinessHours is { OutsideHours: OutsideHoursBehavior.LeaveForTeam } hours)
+            {
+                var tenant = await tenants.GetByIdAsync(tenantId, ct);
+
+                if (!hours.IsOpenAt(timeProvider.GetUtcNow(), ResolveTimeZone(tenant?.Timezone)))
+                {
+                    return ReplyContext.Skip(AgentReplyDecision.OutsideBusinessHours);
+                }
             }
 
             // Tracked by the same DbContext the reply is saved through, so the assignment
@@ -333,6 +361,21 @@ public sealed class AgentConversationResponder(
                 SkipReason: null);
         },
         cancellationToken);
+    }
+
+    /// <summary>
+    /// The tenant's IANA zone (e.g. <c>America/Bogota</c>). An unknown id falls back to UTC
+    /// rather than failing the reply: a mistyped zone should shift the hours, not silence
+    /// the assistant.
+    /// </summary>
+    private static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            return TimeZoneInfo.Utc;
+        }
+
+        return TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var zone) ? zone : TimeZoneInfo.Utc;
     }
 
     private sealed record ReplyContext(

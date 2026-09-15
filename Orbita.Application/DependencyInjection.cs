@@ -62,6 +62,7 @@ public static class DependencyInjection
         // starts the assistant: the outbox dispatcher resolves every handler of that
         // interface and fans `message.received` out to them.
         services.AddScoped<IAgentToolExecutor, AgentToolExecutor>();
+        services.AddScoped<IRoutingService, RoutingService>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
 
