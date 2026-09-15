@@ -18,6 +18,7 @@ public sealed class AgentConversationResponder(
     IRoutingRuleRepository routingRules,
     Orbita.Domain.Channels.IChannelAccountRepository channelAccounts,
     Orbita.Domain.Tenants.ITenantRepository tenants,
+    IAgentAnswerCache answerCache,
     Orbita.Domain.Common.IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<AgentConversationResponder> logger) : IAgentConversationResponder
@@ -68,6 +69,29 @@ public sealed class AgentConversationResponder(
             return await BlockedAsync(tenantId, conversationId, agent, incomingVerdict, cancellationToken);
         }
 
+        // ORB-C12. Only a conversation's first answer is ever reused or stored: anything
+        // later was shaped by the turns before it, and replaying it to a different customer
+        // would answer a conversation they never had.
+        AgentCacheLookup? cacheLookup = null;
+
+        if (agent.SemanticCacheThreshold is not null && context.History.Count == 0)
+        {
+            cacheLookup = await answerCache.LookupAsync(tenantId, agent, conversationId, incoming, cancellationToken);
+
+            if (cacheLookup.Hit is { } hit
+                && AgentGuardrails.InspectReply(hit.Answer, context.GuardrailHistory).IsAllowed)
+            {
+                var cached = await outboundMessages.SendAgentReplyAsync(
+                    tenantId, conversationId, hit.Answer, cacheLookup.RunId, cancellationToken);
+
+                logger.LogInformation(
+                    "Assistant {AgentId} reused cache entry {EntryId} (similarity {Score:0.000}) on conversation {ConversationId}.",
+                    agent.Id, hit.EntryId, hit.Score, conversationId);
+
+                return AgentReplyOutcome.Replied(cached.Id);
+            }
+        }
+
         var retrieved = await RetrieveAsync(tenantId, agent, incoming, cancellationToken);
 
         var messages = AgentPromptBuilder
@@ -79,6 +103,7 @@ public sealed class AgentConversationResponder(
         LlmCompletionResult completion;
         Guid runId;
         var round = 0;
+        var anyToolCalled = false;
 
         while (true)
         {
@@ -111,6 +136,8 @@ public sealed class AgentConversationResponder(
             {
                 break;
             }
+
+            anyToolCalled = true;
 
             // The assistant turn that asked for the tools goes back first — the chat format
             // rejects a tool result that does not answer a call from the turn before it.
@@ -152,6 +179,14 @@ public sealed class AgentConversationResponder(
                 replyVerdict.Reason, conversationId);
 
             return AgentReplyOutcome.Blocked(replyVerdict.Reason!.Value);
+        }
+
+        // An answer that called a tool did something for this customer — registered their
+        // opportunity, moved their stage. Replaying its words to someone else would claim
+        // an action that never happened for them.
+        if (cacheLookup is not null && !anyToolCalled)
+        {
+            answerCache.Store(tenantId, agent, cacheLookup, incoming, replyText);
         }
 
         var reply = await outboundMessages.SendAgentReplyAsync(

@@ -63,6 +63,8 @@ public static class DependencyInjection
         // interface and fans `message.received` out to them.
         services.AddScoped<IAgentToolExecutor, AgentToolExecutor>();
         services.AddScoped<IRoutingService, RoutingService>();
+        services.AddScoped<IAgentAnswerCache, AgentAnswerCache>();
+        services.AddScoped<ISemanticCacheService, SemanticCacheService>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
 
