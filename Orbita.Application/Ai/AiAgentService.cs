@@ -8,6 +8,7 @@ namespace Orbita.Application.Ai;
 public sealed class AiAgentService(
     IAiAgentRepository agentRepository,
     IAiAgentDraftRepository draftRepository,
+    IAiRunRepository runRepository,
     ITenantAuthorizationService authorizationService,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : IAiAgentService
@@ -190,6 +191,18 @@ public sealed class AiAgentService(
         if (agents.Count == 1)
         {
             throw new CannotDeleteLastAgentException();
+        }
+
+        // An assistant that has run is history, not configuration. Checked here rather
+        // than left to the RESTRICT foreign key on ai_runs, which would surface as an
+        // unhandled constraint violation — a 500 on a button the screen offers.
+        var hasHistory = await unitOfWork.QueryInTenantScopeAsync(
+            ct => runRepository.ExistsForAgentAsync(tenantId, agentId, ct),
+            cancellationToken);
+
+        if (hasHistory)
+        {
+            throw new AgentHasHistoryException();
         }
 
         // Its draft, documents and chunks go with it: every one of those cascades from the
