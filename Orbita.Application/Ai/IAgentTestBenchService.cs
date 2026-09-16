@@ -34,21 +34,6 @@ public interface IAgentTestBenchService
 /// </param>
 public sealed record AgentTestRequest(string Message, IReadOnlyList<AgentTestTurn> History);
 
-public sealed record AgentTestTurn(AgentTestRole Role, string Content);
-
-/// <summary>
-/// Only the two roles an operator can produce. The system prompt is composed by the backend
-/// and tool results are recorded by it, so neither is something a caller may inject —
-/// accepting a <c>System</c> turn here would let the screen rewrite the assistant's
-/// standing instructions for one message and see a reply the real agent would never give.
-/// </summary>
-public enum AgentTestRole
-{
-    User,
-
-    Assistant,
-}
-
 /// <param name="Reply">What the assistant answered.</param>
 /// <param name="Retrieved">
 /// The passages that were pulled from the knowledge base and put in front of the model,

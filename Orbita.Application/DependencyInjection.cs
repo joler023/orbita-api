@@ -65,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IRoutingService, RoutingService>();
         services.AddScoped<IAgentAnswerCache, AgentAnswerCache>();
         services.AddScoped<ISemanticCacheService, SemanticCacheService>();
+        services.AddScoped<IAgentTestCaseService, AgentTestCaseService>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
 
