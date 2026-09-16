@@ -60,48 +60,31 @@ public sealed class ConversationHandoffService(
         string? summary,
         CancellationToken cancellationToken)
     {
-        var context = await unitOfWork.QueryInTenantScopeAsync(
-            async ct =>
-            {
-                var conversation = await conversations.GetByIdAsync(conversationId, ct);
+        var handedOver = false;
 
-                if (conversation is null || conversation.TenantId != tenantId || conversation.IsWaitingForHuman)
-                {
-                    return null;
-                }
-
-                var history = await messages.GetRecentByConversationAsync(
-                    tenantId, conversationId, SummaryHistoryTurns, ct);
-
-                return new HandoffContext(conversation.ContactId, Transcript(history));
-            },
-            cancellationToken);
-
-        if (context is null)
-        {
-            // Already waiting, or gone. Both are ordinary: a customer who writes three
-            // times while queued should be handed over once, not three times.
-            return false;
-        }
-
-        // Outside the transaction on purpose: this is a model call, and holding a Postgres
-        // transaction open across it would pin a pooled connection for seconds. Skipped
-        // entirely when the assistant already wrote the note itself.
-        summary = string.IsNullOrWhiteSpace(summary)
-            ? await SummarizeAsync(tenantId, agentId, conversationId, context.Transcript, cancellationToken)
-            : summary.Trim();
-
+        // One transaction, and no model call anywhere near it. Measured against the managed
+        // database with a real model, the first version wrote the summary here and the
+        // customer who asked for a person waited 13.8 s for "te paso con el equipo" —
+        // against 6.6 s for an ordinary answer — because a note meant for somebody else
+        // was in the way. The summary is now written in reaction to the event staged below
+        // (WriteSummaryAsync), which also means an outage delays it instead of losing it.
         await unitOfWork.ExecuteAndSaveInTenantScopeAsync(
             async ct =>
             {
                 var conversation = await conversations.GetByIdAsync(conversationId, ct);
 
-                if (conversation is null || conversation.TenantId != tenantId)
+                // Already waiting, or gone. Both are ordinary: a customer who writes three
+                // times while queued should be handed over once, not three times.
+                if (conversation is null || conversation.TenantId != tenantId || conversation.IsWaitingForHuman)
                 {
                     return;
                 }
 
-                conversation.RequestHumanHandoff(reason, summary, timeProvider.GetUtcNow());
+                conversation.RequestHumanHandoff(
+                    reason,
+                    string.IsNullOrWhiteSpace(summary) ? null : summary.Trim(),
+                    timeProvider.GetUtcNow());
+                handedOver = true;
 
                 // Ids and the reason only — never the summary. It is what the customer
                 // said, and an outbox row is read by handlers with no tenant scoping and
@@ -115,7 +98,7 @@ public sealed class ConversationHandoffService(
                     new
                     {
                         conversationId,
-                        contactId = context.ContactId,
+                        contactId = conversation.ContactId,
                         agentId,
                         reason = reason.ToString(),
                     },
@@ -134,11 +117,83 @@ public sealed class ConversationHandoffService(
             },
             cancellationToken);
 
-        logger.LogInformation(
-            "Conversation {ConversationId} handed to a person ({Reason}) by assistant {AgentId}.",
-            conversationId, reason, agentId);
+        if (handedOver)
+        {
+            logger.LogInformation(
+                "Conversation {ConversationId} handed to a person ({Reason}) by assistant {AgentId}.",
+                conversationId, reason, agentId);
+        }
 
-        return true;
+        return handedOver;
+    }
+
+    public async Task WriteSummaryAsync(
+        Guid tenantId,
+        Guid conversationId,
+        Guid agentId,
+        CancellationToken cancellationToken)
+    {
+        var transcript = await unitOfWork.QueryInTenantScopeAsync(
+            async ct =>
+            {
+                var conversation = await conversations.GetByIdAsync(conversationId, ct);
+
+                // Nothing to write: the assistant already left its own note, a person gave
+                // the conversation back before this ran, or it is gone.
+                if (conversation is null
+                    || conversation.TenantId != tenantId
+                    || !conversation.IsWaitingForHuman
+                    || conversation.HandoffSummary is not null)
+                {
+                    return null;
+                }
+
+                return Transcript(await messages.GetRecentByConversationAsync(
+                    tenantId, conversationId, SummaryHistoryTurns, ct));
+            },
+            cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(transcript))
+        {
+            return;
+        }
+
+        // Outside any transaction: a model call holding a Postgres transaction open would
+        // pin a pooled connection for seconds. A provider failure propagates on purpose —
+        // the outbox dispatcher then retries this event with backoff, so an outage delays
+        // the note instead of losing it the way a swallowed exception would.
+        //
+        // The cheap tier (ORB-C13): a three-sentence internal note has the economics of a
+        // classification, and a task of its own would mean a config entry per provider for
+        // a distinction nobody would act on.
+        var completion = await llmProvider.CompleteAsync(
+            new LlmCompletionRequest(
+                tenantId,
+                LlmTask.Classify,
+                [LlmMessage.System(SummaryInstructions), LlmMessage.User(transcript)],
+                Temperature: 0.2m,
+                MaxTokens: SummaryMaxTokens,
+                Tools: null),
+            cancellationToken);
+
+        await unitOfWork.ExecuteAndSaveInTenantScopeAsync(
+            async ct =>
+            {
+                // The run is recorded even if the note ends up not attached (a person gave
+                // the conversation back while the model was writing): the call was made and
+                // it cost money, and it is still the call the handoff paid for.
+                runRecorder.Record(tenantId, agentId, completion.Usage, conversationId, wasHandoff: true);
+
+                var conversation = await conversations.GetByIdAsync(conversationId, ct);
+
+                if (conversation is not null
+                    && conversation.TenantId == tenantId
+                    && !string.IsNullOrWhiteSpace(completion.Content))
+                {
+                    conversation.AttachHandoffSummary(completion.Content);
+                }
+            },
+            cancellationToken);
     }
 
     public async Task<HandoffQueuePage> ListWaitingAsync(
@@ -219,64 +274,6 @@ public sealed class ConversationHandoffService(
     }
 
     /// <summary>
-    /// The summary, or null when the model could not produce one.
-    ///
-    /// A failure here must never stop the handoff: the customer asked for a person, and
-    /// answering "the summarizer is down" by leaving them with the assistant is the exact
-    /// círculo ORB-C07 exists to break. The run is still recorded — the call was made and
-    /// it cost time — and the person picking the conversation up reads the messages, which
-    /// were always the source anyway.
-    /// </summary>
-    private async Task<string?> SummarizeAsync(
-        Guid tenantId,
-        Guid agentId,
-        Guid conversationId,
-        string transcript,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(transcript))
-        {
-            return null;
-        }
-
-        try
-        {
-            // The cheap tier (ORB-C13). A three-sentence internal note is the same
-            // economics as a classification, and a task of its own would mean a config
-            // entry per provider for a distinction nobody would act on.
-            var completion = await llmProvider.CompleteAsync(
-                new LlmCompletionRequest(
-                    tenantId,
-                    LlmTask.Classify,
-                    [LlmMessage.System(SummaryInstructions), LlmMessage.User(transcript)],
-                    Temperature: 0.2m,
-                    MaxTokens: SummaryMaxTokens,
-                    Tools: null),
-                cancellationToken);
-
-            // Staged, not saved: the ExecuteAndSaveInTenantScopeAsync below commits it
-            // together with the handoff it paid for.
-            runRecorder.Record(
-                tenantId,
-                agentId,
-                completion.Usage,
-                conversationId,
-                wasHandoff: true);
-
-            return string.IsNullOrWhiteSpace(completion.Content) ? null : completion.Content.Trim();
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            logger.LogWarning(
-                exception,
-                "Could not summarize conversation {ConversationId} for its handoff; handing it over without one.",
-                conversationId);
-
-            return null;
-        }
-    }
-
-    /// <summary>
     /// The exchange as plain labelled turns. Oldest first, because a summary of a
     /// conversation read backwards is a summary of a different conversation.
     /// </summary>
@@ -315,5 +312,4 @@ public sealed class ConversationHandoffService(
             ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : null;
 
-    private sealed record HandoffContext(Guid ContactId, string Transcript);
 }

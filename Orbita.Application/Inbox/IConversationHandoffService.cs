@@ -14,8 +14,10 @@ namespace Orbita.Application.Inbox;
 public interface IConversationHandoffService
 {
     /// <summary>
-    /// Hands the conversation over, writes the summary the person taking it will read,
-    /// and records the handoff.
+    /// Hands the conversation over and records the handoff, in one transaction and without
+    /// calling a model — the customer who asked for a person is waiting on this. The note
+    /// for the person taking over is written afterwards by <see cref="WriteSummaryAsync"/>,
+    /// reacting to the <c>conversation.handoff_requested</c> event this stages.
     ///
     /// No caller id and no permission check: this is called by the assistant's runtime,
     /// not by a person — the same reasoning as <c>SendAgentReplyAsync</c>. Never throws
@@ -36,6 +38,21 @@ public interface IConversationHandoffService
         Guid agentId,
         HandoffReason reason,
         string? summary,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the note for whoever takes over a handed-over conversation, with one cheap
+    /// model call, and records that call as the handoff's (<c>ai_runs.was_handoff</c>).
+    ///
+    /// A no-op when there is nothing to write: the assistant left its own note, a person
+    /// already gave the conversation back, or it is gone. A provider failure is
+    /// <b>not</b> swallowed — the caller is the outbox, which retries with backoff, so an
+    /// outage delays the note instead of losing it.
+    /// </summary>
+    Task WriteSummaryAsync(
+        Guid tenantId,
+        Guid conversationId,
+        Guid agentId,
         CancellationToken cancellationToken);
 
     /// <summary>

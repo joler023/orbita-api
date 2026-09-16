@@ -69,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<IAgentTestCaseService, AgentTestCaseService>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
+        services.AddScoped<IIntegrationEventHandler, HandoffSummaryIntegrationHandler>();
 
         return services;
     }
