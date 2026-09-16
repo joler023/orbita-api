@@ -15,6 +15,7 @@ public sealed class AgentConversationResponder(
     IOutboundMessageService outboundMessages,
     Orbita.Application.Outbox.IOutboxWriter outboxWriter,
     IAgentToolExecutor toolExecutor,
+    IConversationHandoffService handoffService,
     IRoutingRuleRepository routingRules,
     Orbita.Domain.Channels.IChannelAccountRepository channelAccounts,
     Orbita.Domain.Tenants.ITenantRepository tenants,
@@ -58,6 +59,16 @@ public sealed class AgentConversationResponder(
 
         var agent = context.Agent!;
         var incoming = context.Incoming!;
+
+        // ORB-C07, before the guardrails and before anything is paid for. Asking for a
+        // person is the least ambiguous thing a customer can say, and it is checked first
+        // so that it also wins over a blocked topic in the same message: both end the
+        // assistant's turn, but "me pidieron un humano" is the label the person picking
+        // the conversation up can act on, and "parecía molesto" is not.
+        if (HandoffTriggers.Detect(incoming, context.GuardrailHistory) is { } trigger)
+        {
+            return await HandOffAsync(tenantId, conversationId, agent, trigger, agent.HandoffReply, cancellationToken);
+        }
 
         // ORB-C06, before anything is paid for: an out-of-scope subject, a conversation
         // that has had enough answers for one window, or a loop all end here.
@@ -163,7 +174,12 @@ public sealed class AgentConversationResponder(
             await unitOfWork.SaveChangesAsync(cancellationToken);
             logger.LogWarning("Model produced no text for conversation {ConversationId}.", conversationId);
 
-            return AgentReplyOutcome.Skipped(AgentReplyDecision.ModelProducedNoText);
+            // The customer wrote and got nothing back, which is the círculo ORB-C07 is
+            // written against — so it goes to a person instead of being dropped. Silently
+            // for the customer: whatever we said now would be an apology for a failure
+            // they have not seen yet.
+            return await HandOffAsync(
+                tenantId, conversationId, agent, HandoffReason.AgentDecision, reply: null, cancellationToken);
         }
 
         var replyText = completion.Content.Trim();
@@ -177,6 +193,16 @@ public sealed class AgentConversationResponder(
             logger.LogWarning(
                 "Guardrail {Reason} blocked the reply on conversation {ConversationId}.",
                 replyVerdict.Reason, conversationId);
+
+            // Same as no text at all, from where the customer is standing: they asked
+            // something and nothing came back (ORB-C07).
+            await handoffService.RequestAsync(
+                tenantId,
+                conversationId,
+                agent.Id,
+                HandoffTriggers.ForGuardrail(replyVerdict.Reason!.Value),
+                summary: null,
+                cancellationToken);
 
             return AgentReplyOutcome.Blocked(replyVerdict.Reason!.Value);
         }
@@ -240,22 +266,66 @@ public sealed class AgentConversationResponder(
             new { conversationId, agentId = agent.Id, reason = verdict.Reason.ToString(), topic = verdict.MatchedTopic },
             cancellationToken);
 
+        // Every block now also hands the conversation to a person (ORB-C07). Before it,
+        // all three outcomes left the customer with the assistant that had just decided
+        // not to help them, which is the "círculo" the story is written against. What
+        // still differs is what the customer hears, and that has not changed.
+        var handoffReason = HandoffTriggers.ForGuardrail(verdict.Reason!.Value);
+
         if (verdict.Reason != GuardrailReason.OutOfScopeTopic)
         {
             // A loop or an exhausted window gets silence: both mean the assistant has
             // already said too much, so one more sentence is the failure repeating itself.
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await handoffService.RequestAsync(tenantId, conversationId, agent.Id, handoffReason, summary: null, cancellationToken);
 
             return AgentReplyOutcome.Blocked(verdict.Reason!.Value);
         }
 
-        // No ai_run: nothing was generated, so there is nothing to bill or to trace. The
-        // sentence is the owner's, not the model's, and Message.OutboundAgentText requires
-        // a run — which is why this goes out as a system message instead.
+        // No ai_run for the sentence: nothing was generated, so there is nothing to bill
+        // or to trace. The sentence is the owner's, not the model's, and
+        // Message.OutboundAgentText requires a run — which is why this goes out as a
+        // system message instead. (The handoff's own summary does cost one call, once.)
         await outboundMessages.SendSystemReplyAsync(
             tenantId, conversationId, agent.OutOfScopeReply, cancellationToken);
+        await handoffService.RequestAsync(tenantId, conversationId, agent.Id, handoffReason, summary: null, cancellationToken);
 
         return AgentReplyOutcome.Blocked(verdict.Reason!.Value);
+    }
+
+    /// <summary>
+    /// Hands the conversation to a person and, when there is something worth saying, says
+    /// it (ORB-C07).
+    ///
+    /// The sentence is the owner's <see cref="AiAgent.HandoffReply"/> rather than a
+    /// generated one, for the same reason as the out-of-scope line: it is sent on paths
+    /// where no model call is made, so there is nothing to generate it with — and the
+    /// owner's own words beat ours. When the assistant hands over through
+    /// <c>escalar_a_humano</c> instead, it says goodbye in its own words, which do mirror
+    /// the customer's language.
+    /// </summary>
+    private async Task<AgentReplyOutcome> HandOffAsync(
+        Guid tenantId,
+        Guid conversationId,
+        AiAgent agent,
+        HandoffReason reason,
+        string? reply,
+        CancellationToken cancellationToken)
+    {
+        // Saved first so the assignment made while loading is not lost if the handoff
+        // itself fails halfway.
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var handedOver = await handoffService.RequestAsync(tenantId, conversationId, agent.Id, reason, summary: null, cancellationToken);
+
+        // Only when this call is the one that moved it. A customer who writes three times
+        // while already queued should not be told three times.
+        if (handedOver && !string.IsNullOrWhiteSpace(reply))
+        {
+            await outboundMessages.SendSystemReplyAsync(tenantId, conversationId, reply, cancellationToken);
+        }
+
+        return AgentReplyOutcome.HandedOff(reason);
     }
 
     /// <summary>
@@ -314,11 +384,12 @@ public sealed class AgentConversationResponder(
                 return ReplyContext.Skip(AgentReplyDecision.ConversationGone);
             }
 
-            // ORB-C07 is what makes a handoff explicit and permanent. Until it exists,
-            // "somebody is already assigned" is the closest honest signal that a person
-            // took this conversation, and talking over them is the one failure mode a
-            // customer never forgives.
-            if (conversation.AssigneeId is not null)
+            // Two ways a person owns this conversation: ORB-C07 handed it over and nobody
+            // has given it back, or ORB-B15 assigned it to someone. Talking over either is
+            // the one failure mode a customer never forgives — and for the handoff it is
+            // also the last acceptance criterion of C07, which is why the flag lives on
+            // the conversation instead of being inferred from its status.
+            if (conversation.IsWaitingForHuman || conversation.AssigneeId is not null)
             {
                 return ReplyContext.Skip(AgentReplyDecision.HumanIsHandlingIt);
             }

@@ -30,7 +30,8 @@ public interface IAgentConversationResponder
 public sealed record AgentReplyOutcome(
     AgentReplyDecision Decision,
     Guid? MessageId = null,
-    Domain.Ai.GuardrailReason? GuardrailReason = null)
+    Domain.Ai.GuardrailReason? GuardrailReason = null,
+    Domain.Inbox.HandoffReason? HandoffReason = null)
 {
     public static AgentReplyOutcome Replied(Guid messageId) => new(AgentReplyDecision.Replied, messageId);
 
@@ -38,6 +39,9 @@ public sealed record AgentReplyOutcome(
 
     public static AgentReplyOutcome Blocked(Domain.Ai.GuardrailReason reason)
         => new(AgentReplyDecision.BlockedByGuardrail, null, reason);
+
+    public static AgentReplyOutcome HandedOff(Domain.Inbox.HandoffReason reason)
+        => new(AgentReplyDecision.HandedOffToHuman, null, null, reason);
 }
 
 public enum AgentReplyDecision
@@ -59,8 +63,18 @@ public enum AgentReplyDecision
     /// <summary>The assistant exists but the owner switched it off (ORB-C10).</summary>
     AgentDisabled,
 
-    /// <summary>A person is already handling this conversation — ORB-C07 will formalize this.</summary>
+    /// <summary>
+    /// A person owns this conversation: it was handed over (ORB-C07) and nobody has given
+    /// it back, or ORB-B15 assigned it to someone.
+    /// </summary>
     HumanIsHandlingIt,
+
+    /// <summary>
+    /// This message is what took the conversation away from the assistant (ORB-C07).
+    /// <see cref="AgentReplyOutcome.HandoffReason"/> says which of the four triggers it
+    /// was. Distinct from <see cref="HumanIsHandlingIt"/>, which is every message after.
+    /// </summary>
+    HandedOffToHuman,
 
     /// <summary>Outside the 24h service window a free-form reply is impossible (ORB-B07).</summary>
     ServiceWindowClosed,

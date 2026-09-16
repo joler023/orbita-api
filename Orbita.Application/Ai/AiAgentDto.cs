@@ -63,7 +63,7 @@ public sealed record AiAgentDto(
             pending is null ? null : AiAgentDraftDto.From(pending),
             conversationCount,
             agent.CreatedAt,
-            new AgentGuardrailsDto(agent.BlockedTopics, agent.OutOfScopeReply),
+            new AgentGuardrailsDto(agent.BlockedTopics, agent.OutOfScopeReply, agent.HandoffReply),
             // Null means always on. Readable here because a screen that can set the hours
             // and never show them back is a screen nobody can trust — and like the
             // guardrails, this is live configuration, not part of the draft.
@@ -78,7 +78,16 @@ public sealed record AiAgentDto(
 /// press Publicar — the screen saying "guardado" while the risk keeps running would be
 /// the feature working backwards.
 /// </summary>
-public sealed record AgentGuardrailsDto(IReadOnlyList<string> BlockedTopics, string OutOfScopeReply);
+/// <param name="HandoffReply">
+/// What the customer hears when the conversation is handed to a person (ORB-C07). Lives
+/// here rather than in the draft for the same reason as the rest: it is the sentence that
+/// goes out the moment the assistant steps aside, and a sentence that waits for Publicar
+/// is a sentence nobody hears when they need it.
+/// </param>
+public sealed record AgentGuardrailsDto(
+    IReadOnlyList<string> BlockedTopics,
+    string OutOfScopeReply,
+    string HandoffReply);
 
 /// <summary>The three sliders on ORB-C10's "Quién es" card.</summary>
 public sealed record AgentStyleDto(

@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IOutboxDispatchService, OutboxDispatchService>();
         services.AddScoped<IOutboundMessageService, OutboundMessageService>();
+        services.AddScoped<IConversationHandoffService, ConversationHandoffService>();
         services.AddScoped<IOutboundMessageDispatchService, OutboundMessageDispatchService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IMessageTemplateService, MessageTemplateService>();

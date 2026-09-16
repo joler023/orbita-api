@@ -10,7 +10,8 @@ public sealed class AiRunRecorder(IAiRunRepository runRepository, TimeProvider t
         LlmUsage usage,
         Guid? conversationId = null,
         IReadOnlyList<string>? toolsCalled = null,
-        IReadOnlyList<Guid>? retrievedChunkIds = null)
+        IReadOnlyList<Guid>? retrievedChunkIds = null,
+        bool wasHandoff = false)
     {
         ArgumentNullException.ThrowIfNull(usage);
 
@@ -26,7 +27,8 @@ public sealed class AiRunRecorder(IAiRunRepository runRepository, TimeProvider t
             usage.FinishReason,
             timeProvider.GetUtcNow(),
             toolsCalled,
-            retrievedChunkIds);
+            retrievedChunkIds,
+            wasHandoff);
 
         runRepository.Add(run);
 
