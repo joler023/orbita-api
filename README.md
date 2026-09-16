@@ -160,6 +160,21 @@ Con el entorno en `Development`, la documentación OpenAPI queda disponible vía
 - **Los tests de integración fallan o se cuelgan**: casi siempre es que Docker no está corriendo — Testcontainers necesita el daemon disponible para levantar el Postgres efímero de cada corrida.
 - **Puerto 5432 ya en uso por otro proyecto**: bajar el otro contenedor/servicio o remapear el puerto publicado en `docker-compose.yml`; la app lee el host/puerto desde `ConnectionStrings:Postgres` en `appsettings.Development.json`.
 
+### Correr las pruebas cuando Smart App Control bloquea
+
+En Windows con Smart App Control activo, `dotnet test` puede fallar de golpe con `FileLoadException ... Una directiva de Control de aplicaciones bloqueó este archivo` sobre un `.dll` recién compilado. No es el código: SAC decide por reputación sobre binarios sin firmar, y cambiar de configuración (`-c Release`) solo lo esquiva a veces. **No desactivar SAC** (es irreversible). Lo que funciona siempre es correr la suite en un contenedor Linux del SDK, donde SAC no existe; Testcontainers sigue levantando su Postgres en el Docker del host a través del socket:
+
+```bash
+docker run --rm \
+  -v //var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd):/src:ro" \
+  -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
+  mcr.microsoft.com/dotnet/sdk:10.0 \
+  bash -c 'mkdir /work && cd /src && tar --exclude=./.git --exclude="*/bin" --exclude="*/obj" --exclude=./.env --exclude=./local -cf - . | tar -xf - -C /work && cd /work && dotnet test Orbita.slnx'
+```
+
+El repo se monta de solo lectura y se copia sin `bin`/`obj` ni `.env`, así el contenedor no pisa los binarios de Windows ni ve credenciales.
+
 ## Usar una base administrada en vez de Docker
 
 Si no querés depender de Docker para tener base de datos (por ejemplo apuntando a
