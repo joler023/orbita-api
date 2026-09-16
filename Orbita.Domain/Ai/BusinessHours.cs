@@ -21,7 +21,7 @@ public sealed record BusinessHours(IReadOnlyList<BusinessHoursSlot> Slots, Outsi
 
         if (slots.Count > MaxSlots)
         {
-            throw new ArgumentException($"At most {MaxSlots} time slots.", nameof(slots));
+            throw new ArgumentException($"Un horario admite hasta {MaxSlots} franjas.", nameof(slots));
         }
 
         // An empty schedule is never what anyone meant. With LeaveForTeam it silences the
@@ -41,7 +41,7 @@ public sealed record BusinessHours(IReadOnlyList<BusinessHoursSlot> Slots, Outsi
             // Allowing closes < opens would make "is it open" ambiguous across midnight.
             if (slot.Closes <= slot.Opens)
             {
-                throw new ArgumentException("A time slot must close after it opens.", nameof(slots));
+                throw new ArgumentException("Cada franja tiene que cerrar después de abrir. Para un turno que pasa la medianoche, usa dos franjas.", nameof(slots));
             }
         }
 
