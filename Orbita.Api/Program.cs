@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.IdentityModel.Tokens;
 using Orbita.Api.ErrorHandling;
+using Orbita.Api.Realtime;
 using Orbita.Application;
+using Orbita.Application.Crm;
 using Orbita.Infrastructure;
 using Scalar.AspNetCore;
 
@@ -64,11 +66,22 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
                     context.Token = accessToken;
                 }
 
+                // WebSockets cannot attach the cookie on every frame; the JS client
+                // also sends the access token as ?access_token= during negotiate.
+                if (string.IsNullOrEmpty(context.Token)
+                    && context.HttpContext.Request.Path.StartsWithSegments("/hubs")
+                    && context.Request.Query.TryGetValue("access_token", out var queryToken))
+                {
+                    context.Token = queryToken;
+                }
+
                 return Task.CompletedTask;
             },
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
+builder.Services.AddScoped<ICrmRealtimePublisher, SignalRCrmRealtimePublisher>();
 
 builder.Services.AddCors();
 builder.Services.AddOptions<CorsOptions>()
@@ -100,6 +113,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<CrmHub>("/hubs/crm");
 
 app.Run();
 

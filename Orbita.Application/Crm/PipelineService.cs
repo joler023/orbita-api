@@ -298,7 +298,7 @@ public sealed class PipelineService(
                 cancellationToken);
             foreach (var opportunity in opportunities)
             {
-                opportunity.MoveToStage(destination.Id, now);
+                opportunity.MoveToStage(destination.Id, Guid.NewGuid(), now);
             }
         }
 

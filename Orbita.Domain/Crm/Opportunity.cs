@@ -17,6 +17,9 @@ public sealed class Opportunity : Entity
         Guid stageId,
         string title,
         decimal? amount,
+        Guid? assignedToUserId,
+        Guid? contactId,
+        Guid? lastMoveEventId,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt)
         : base(id)
@@ -26,6 +29,9 @@ public sealed class Opportunity : Entity
         StageId = stageId;
         Title = title;
         Amount = amount;
+        AssignedToUserId = assignedToUserId;
+        ContactId = contactId;
+        LastMoveEventId = lastMoveEventId;
         CreatedAt = createdAt;
         UpdatedAt = updatedAt;
     }
@@ -40,6 +46,17 @@ public sealed class Opportunity : Entity
 
     public decimal? Amount { get; private set; }
 
+    public Guid? AssignedToUserId { get; private set; }
+
+    public Guid? ContactId { get; private set; }
+
+    /// <summary>
+    /// Last client-generated move id applied to this card (ORB-D05). Repeating the
+    /// same id is a no-op so a SignalR echo of the mover's own action cannot bounce
+    /// the card.
+    /// </summary>
+    public Guid? LastMoveEventId { get; private set; }
+
     public DateTimeOffset CreatedAt { get; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -50,7 +67,9 @@ public sealed class Opportunity : Entity
         Guid stageId,
         string title,
         decimal? amount,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        Guid? assignedToUserId = null,
+        Guid? contactId = null)
     {
         if (tenantId == Guid.Empty)
         {
@@ -79,18 +98,63 @@ public sealed class Opportunity : Entity
             stageId,
             RequireTitle(title),
             amount,
+            assignedToUserId,
+            contactId,
+            lastMoveEventId: null,
             now,
             now);
     }
 
-    public void MoveToStage(Guid stageId, DateTimeOffset now)
+    /// <returns>False when <paramref name="eventId"/> was already applied.</returns>
+    public bool MoveToStage(Guid stageId, Guid eventId, DateTimeOffset now)
     {
         if (stageId == Guid.Empty)
         {
             throw new ArgumentException("Stage id is required.", nameof(stageId));
         }
 
+        if (eventId == Guid.Empty)
+        {
+            throw new ArgumentException("Move event id is required.", nameof(eventId));
+        }
+
+        if (LastMoveEventId == eventId)
+        {
+            return false;
+        }
+
         StageId = stageId;
+        LastMoveEventId = eventId;
+        UpdatedAt = now;
+        return true;
+    }
+
+    public void Rename(string title, DateTimeOffset now)
+    {
+        Title = RequireTitle(title);
+        UpdatedAt = now;
+    }
+
+    public void SetAmount(decimal? amount, DateTimeOffset now)
+    {
+        if (amount is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Amount cannot be negative.");
+        }
+
+        Amount = amount;
+        UpdatedAt = now;
+    }
+
+    public void AssignTo(Guid? userId, DateTimeOffset now)
+    {
+        AssignedToUserId = userId;
+        UpdatedAt = now;
+    }
+
+    public void LinkContact(Guid? contactId, DateTimeOffset now)
+    {
+        ContactId = contactId;
         UpdatedAt = now;
     }
 

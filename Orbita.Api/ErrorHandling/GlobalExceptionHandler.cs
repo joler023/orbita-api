@@ -42,6 +42,11 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             StageHasOpportunitiesException => (StatusCodes.Status409Conflict, "Stage has opportunities"),
             PipelineHasOpportunitiesException => (StatusCodes.Status409Conflict, "Pipeline has opportunities"),
             InvalidStageRelocateException => (StatusCodes.Status400BadRequest, "Invalid stage relocate"),
+            OpportunityNotFoundException => (StatusCodes.Status404NotFound, "Opportunity not found"),
+            AssigneeNotInTenantException => (StatusCodes.Status400BadRequest, "Assignee not in tenant"),
+            ContactNotFoundException => (StatusCodes.Status404NotFound, "Contact not found"),
+            ContactAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact already exists"),
+            ContactFieldAlreadyExistsException => (StatusCodes.Status409Conflict, "Contact field already exists"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };

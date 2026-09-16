@@ -6,7 +6,7 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
-**2026-09-07** — `ORB-D04` (pipelines y etapas) en `feature/d04-pipelines`. El track A (`ORB-A08`–`A15` salvo A13/A14) sigue en `develop`.
+**2026-09-14** — `ORB-D13` (export CSV sync) en `feature/d13-exportacion`, apilada sobre `feature/d03-busqueda`. Async R2 queda como follow-up.
 
 ## Qué está implementado
 
@@ -14,11 +14,12 @@ Ver la sección "Qué hay implementado hoy" en [`README.md`](./README.md) — se
 
 Track D (CRM — dueño de pipelines/contactos en este repo, vertical full-stack):
 
-- [x] `ORB-D04` Pipelines y etapas — default `Ventas` al registrar; kanban de oportunidades es `ORB-D05`
-- [ ] `ORB-D05` Tablero de oportunidades
-- [ ] `ORB-D02` Ficha de contacto (depende también de `ORB-B03`)
+- [x] `ORB-D04` Pipelines y etapas — default `Ventas` al registrar
+- [x] `ORB-D05` Tablero de oportunidades — create/move + SignalR
+- [x] `ORB-D02` Ficha de contacto — listado, dedup por teléfono/Instagram, campos custom, vínculo a oportunidades; historial de conversación queda para Track B
+- [x] `ORB-D03` Búsqueda de contactos — `pg_trgm` + ILIKE, ordenada por similitud del nombre
+- [x] `ORB-D13` Exportación CSV sync — `GET .../exports/contacts` y `.../exports/opportunities` (sin job async ni R2; conversaciones esperan Track B)
 - [ ] `ORB-D06` Crear oportunidad desde la conversación (depende de `ORB-D05` y `ORB-B13`)
-- [ ] `ORB-D03` Búsqueda de contactos
 
 Track A (Plataforma, Identidad y Facturación):
 

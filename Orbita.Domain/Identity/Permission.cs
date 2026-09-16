@@ -25,4 +25,13 @@ public enum Permission
 
     /// <summary>Create, rename, reorder, or delete pipelines and stages (ORB-D04).</summary>
     ManagePipeline,
+
+    /// <summary>Create and move opportunities on a pipeline (ORB-D05). Agents included.</summary>
+    ManageOpportunities,
+
+    /// <summary>See contacts (ORB-D02).</summary>
+    ViewContacts,
+
+    /// <summary>Create and edit contacts and custom fields (ORB-D02).</summary>
+    ManageContacts,
 }

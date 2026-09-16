@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Orbita.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Orbita.Infrastructure.Persistence;
 namespace Orbita.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(OrbitaDbContext))]
-    partial class OrbitaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907200851_AddOpportunityBoardFields")]
+    partial class AddOpportunityBoardFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -205,115 +208,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("subscriptions", (string)null);
                 });
 
-            modelBuilder.Entity("Orbita.Domain.Crm.Contact", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("channel");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CustomFields")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("custom_fields");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(254)
-                        .HasColumnType("character varying(254)")
-                        .HasColumnName("email");
-
-                    b.Property<string>("InstagramUsername")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("instagram_username");
-
-                    b.Property<string>("Phone")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("phone");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "DisplayName")
-                        .HasDatabaseName("ix_contacts_tenant_name");
-
-                    b.HasIndex("TenantId", "InstagramUsername")
-                        .IsUnique()
-                        .HasDatabaseName("ix_contacts_tenant_instagram")
-                        .HasFilter("instagram_username IS NOT NULL");
-
-                    b.HasIndex("TenantId", "Phone")
-                        .IsUnique()
-                        .HasDatabaseName("ix_contacts_tenant_phone")
-                        .HasFilter("phone IS NOT NULL");
-
-                    b.ToTable("contacts", (string)null);
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Crm.ContactFieldDefinition", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("FieldType")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("field_type");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("key");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("label");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "Key")
-                        .IsUnique()
-                        .HasDatabaseName("ix_contact_field_definitions_tenant_key");
-
-                    b.ToTable("contact_field_definitions", (string)null);
-                });
-
             modelBuilder.Entity("Orbita.Domain.Crm.Opportunity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -328,10 +222,6 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("AssignedToUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("assigned_to_user_id");
-
-                    b.Property<Guid?>("ContactId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("contact_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -365,17 +255,12 @@ namespace Orbita.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ContactId");
-
                     b.HasIndex("PipelineId");
 
                     b.HasIndex("StageId");
 
                     b.HasIndex("TenantId", "AssignedToUserId")
                         .HasDatabaseName("ix_opportunities_tenant_assignee");
-
-                    b.HasIndex("TenantId", "ContactId")
-                        .HasDatabaseName("ix_opportunities_tenant_contact");
 
                     b.HasIndex("TenantId", "PipelineId")
                         .HasDatabaseName("ix_opportunities_tenant_pipeline");
@@ -818,31 +703,8 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Orbita.Domain.Crm.Contact", b =>
-                {
-                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Orbita.Domain.Crm.ContactFieldDefinition", b =>
-                {
-                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Orbita.Domain.Crm.Opportunity", b =>
                 {
-                    b.HasOne("Orbita.Domain.Crm.Contact", null)
-                        .WithMany()
-                        .HasForeignKey("ContactId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Orbita.Domain.Crm.Pipeline", null)
                         .WithMany()
                         .HasForeignKey("PipelineId")

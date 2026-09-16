@@ -55,8 +55,11 @@ public sealed class PipelineTests
         var to = Guid.NewGuid();
         var deal = Opportunity.Create(TenantId, pipelineId, from, "Sitio web", 1_000m, Now);
 
-        deal.MoveToStage(to, Now.AddMinutes(1));
+        var eventId = Guid.NewGuid();
+        Assert.True(deal.MoveToStage(to, eventId, Now.AddMinutes(1)));
+        Assert.False(deal.MoveToStage(to, eventId, Now.AddMinutes(2)));
 
         Assert.Equal(to, deal.StageId);
+        Assert.Equal(eventId, deal.LastMoveEventId);
     }
 }
