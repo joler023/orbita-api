@@ -139,6 +139,24 @@ public sealed class AiAgent : Entity
     public string OutOfScopeReply { get; private set; } = DefaultOutOfScopeReply;
 
     /// <summary>
+    /// What the customer hears when the conversation is handed to a person (ORB-C07), on
+    /// the paths where no model reply is produced — they asked for a human, or they are
+    /// visibly stuck. When the assistant hands over through <c>escalar_a_humano</c>
+    /// instead, it says so in its own words, which is better: those mirror the customer's
+    /// language, and this sentence cannot.
+    ///
+    /// Editable, with a default, for the same reason as <see cref="OutOfScopeReply"/>: it
+    /// never passes through the model, so the owner's own words beat ours.
+    ///
+    /// The default promises only what the product actually does — the assistant stops
+    /// answering and the conversation is left for the team. It deliberately does not say
+    /// "en un momento te escriben": ORB-B15 does not exist, so nobody is assigned, and the
+    /// frontend flagged this exact sentence as the place where the promise we already
+    /// corrected once in ORB-C06 would creep back in.
+    /// </summary>
+    public string HandoffReply { get; private set; } = DefaultHandoffReply;
+
+    /// <summary>
     /// When this assistant is on duty (ORB-C08). Null means always on. Like guardrails,
     /// not part of the draft: "stop answering after 6pm" has to hold the moment it is saved.
     /// </summary>
@@ -176,6 +194,11 @@ public sealed class AiAgent : Entity
 
     public const string DefaultOutOfScopeReply =
         "Eso prefiero que te lo responda alguien del equipo. Escríbeles directamente y con gusto te ayudan.";
+
+    public const int HandoffReplyMaxLength = 500;
+
+    public const string DefaultHandoffReply =
+        "Listo: dejo de responderte yo y la conversación queda para alguien del equipo.";
 
     public const int PersonalityMaxLength = 2_000;
 
@@ -292,15 +315,24 @@ public sealed class AiAgent : Entity
 
     public void SetBusinessHours(BusinessHours? businessHours) => BusinessHours = businessHours;
 
-    public void SetGuardrails(IReadOnlyList<string> topics, string outOfScopeReply)
+    public void SetGuardrails(IReadOnlyList<string> topics, string outOfScopeReply, string handoffReply)
     {
         ArgumentNullException.ThrowIfNull(topics);
         ArgumentException.ThrowIfNullOrWhiteSpace(outOfScopeReply);
+        ArgumentException.ThrowIfNullOrWhiteSpace(handoffReply);
 
+        // Spanish, like every other message the dashboard shows as-is (see the note on the
+        // Spanish register in CLAUDE.md). The two next to it were still in English.
         if (outOfScopeReply.Length > OutOfScopeReplyMaxLength)
         {
             throw new ArgumentException(
-                $"The reply must be at most {OutOfScopeReplyMaxLength} characters.", nameof(outOfScopeReply));
+                $"La frase debe tener máximo {OutOfScopeReplyMaxLength} caracteres.", nameof(outOfScopeReply));
+        }
+
+        if (handoffReply.Length > HandoffReplyMaxLength)
+        {
+            throw new ArgumentException(
+                $"La frase de traspaso debe tener máximo {HandoffReplyMaxLength} caracteres.", nameof(handoffReply));
         }
 
         // Blank entries are dropped rather than rejected. An empty string would match
@@ -314,7 +346,7 @@ public sealed class AiAgent : Entity
 
         if (cleaned.Count > MaxBlockedTopics)
         {
-            throw new ArgumentException($"At most {MaxBlockedTopics} topics can be blocked.", nameof(topics));
+            throw new ArgumentException($"Puedes bloquear máximo {MaxBlockedTopics} temas.", nameof(topics));
         }
 
         foreach (var topic in cleaned)
@@ -322,13 +354,14 @@ public sealed class AiAgent : Entity
             if (topic.Length > BlockedTopicMaxLength)
             {
                 throw new ArgumentException(
-                    $"A blocked topic must be at most {BlockedTopicMaxLength} characters.", nameof(topics));
+                    $"Un tema bloqueado debe tener máximo {BlockedTopicMaxLength} caracteres.", nameof(topics));
             }
         }
 
         _blockedTopics.Clear();
         _blockedTopics.AddRange(cleaned);
         OutOfScopeReply = outOfScopeReply.Trim();
+        HandoffReply = handoffReply.Trim();
     }
 
     /// <summary>

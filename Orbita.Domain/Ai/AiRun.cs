@@ -87,6 +87,19 @@ public sealed class AiRun : Entity
     /// </summary>
     public IReadOnlyList<Guid> RetrievedChunkIds => _retrievedChunkIds;
 
+    /// <summary>
+    /// Whether this call was the one that handed the conversation to a person
+    /// (orbita-schema.dbml's <c>was_handoff</c>). ORB-C09 left the column out because
+    /// nothing could ever set it before ORB-C07 existed; the handoff summary is the call
+    /// that sets it now.
+    ///
+    /// It is on the run rather than derived from the conversation because a conversation
+    /// can be handed over, given back and handed over again, and "how many handoffs did
+    /// this assistant cause, and what did they cost" is a question about calls, not about
+    /// the state a thread happens to be in today.
+    /// </summary>
+    public bool WasHandoff { get; private init; }
+
     private readonly List<string> _toolsCalled = [];
 
     private readonly List<Guid> _retrievedChunkIds = [];
@@ -103,9 +116,13 @@ public sealed class AiRun : Entity
         string? finishReason,
         DateTimeOffset now,
         IReadOnlyList<string>? toolsCalled = null,
-        IReadOnlyList<Guid>? retrievedChunkIds = null)
+        IReadOnlyList<Guid>? retrievedChunkIds = null,
+        bool wasHandoff = false)
     {
-        var run = new AiRun(Guid.NewGuid(), tenantId, agentId, conversationId, model, tokensIn, tokensOut, costUsd, latencyMs, finishReason, error: null, now);
+        var run = new AiRun(Guid.NewGuid(), tenantId, agentId, conversationId, model, tokensIn, tokensOut, costUsd, latencyMs, finishReason, error: null, now)
+        {
+            WasHandoff = wasHandoff,
+        };
 
         run._toolsCalled.AddRange(toolsCalled ?? []);
         run._retrievedChunkIds.AddRange(retrievedChunkIds ?? []);

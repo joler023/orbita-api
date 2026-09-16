@@ -58,12 +58,17 @@ public static class AiToolCatalog
             "Reserva un espacio en la agenda cuando el cliente lo pide.",
             IsAvailable: false,
             "Disponible cuando se active la agenda."),
+        // Available since ORB-C07. It hands the conversation to the queue of threads
+        // waiting for a person and stops the assistant from answering it again — it does
+        // not assign anyone in particular, which is ORB-B15's job and is why this stayed
+        // unavailable until the queue itself existed.
         new(
             EscalarAHumano,
             "Pasar la conversación a una persona",
             "Entrega la conversación al equipo cuando no puede resolver o el cliente lo pide.",
-            IsAvailable: false,
-            "Disponible cuando se active la bandeja de conversaciones."),
+            IsAvailable: true,
+            UnavailableReason: null,
+            ResultsIn: "inbox"),
     }.ToFrozenDictionary(tool => tool.Key);
 
     public static IReadOnlyList<AiTool> All { get; } = [.. ByKey.Values];
