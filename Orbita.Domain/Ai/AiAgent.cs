@@ -148,12 +148,16 @@ public sealed class AiAgent : Entity
     /// How similar a question must be to reuse an earlier answer (ORB-C12), as cosine
     /// similarity. Null means the cache is off — the default, because reusing answers is a
     /// trade an owner should choose, not discover.
+    ///
+    /// The number is ours, never the owner's: it is set through
+    /// <see cref="SetSemanticCacheLevel"/> from a named level, the same decision ORB-C10
+    /// made for temperature. "0,92" is not something a baker can reason about, and getting
+    /// it wrong means a customer receives the answer to a different question.
     /// </summary>
     public decimal? SemanticCacheThreshold { get; private set; }
 
-    public const decimal MinSemanticCacheThreshold = 0.80m;
-
-    public const decimal MaxSemanticCacheThreshold = 0.99m;
+    /// <summary>The level that produced <see cref="SemanticCacheThreshold"/>.</summary>
+    public SemanticCacheLevel SemanticCacheLevel => SemanticCacheLevels.From(SemanticCacheThreshold);
 
     public bool IsEnabled { get; private set; }
 
@@ -280,20 +284,11 @@ public sealed class AiAgent : Entity
     /// would otherwise match every message ever sent and silence the assistant completely.
     /// </summary>
     /// <summary>
-    /// Below 0.80, "similar" starts meaning "about the same topic", and a customer asking
-    /// about Sunday hours would get the answer to Saturday's. Above 0.99 it never hits.
+    /// Turns the cache off, or on at one of three levels. Tightening it later never makes
+    /// a stale answer reachable: entries are filtered by similarity at read time.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException"/>
-    public void SetSemanticCacheThreshold(decimal? threshold)
-    {
-        if (threshold is { } value && (value < MinSemanticCacheThreshold || value > MaxSemanticCacheThreshold))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(threshold), $"The threshold must be between {MinSemanticCacheThreshold} and {MaxSemanticCacheThreshold}.");
-        }
-
-        SemanticCacheThreshold = threshold;
-    }
+    public void SetSemanticCacheLevel(SemanticCacheLevel level)
+        => SemanticCacheThreshold = SemanticCacheLevels.ThresholdFor(level);
 
     public void SetBusinessHours(BusinessHours? businessHours) => BusinessHours = businessHours;
 

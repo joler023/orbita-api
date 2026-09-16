@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Orbita.Application.Ai;
 using Orbita.Application.Channels;
+using Orbita.Domain.Ai;
 using Orbita.Domain.Inbox;
 using Orbita.IntegrationTests.TestSupport;
 
@@ -28,7 +29,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
-    public async Task The_cache_is_off_until_the_owner_sets_a_threshold()
+    public async Task The_cache_is_off_until_the_owner_chooses_a_level()
     {
         var client = TestRequests.CreateClient(_fixture);
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
@@ -36,30 +37,35 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
 
         var initial = await GetCacheAsync(client, tenantId, agentId, cookies);
 
-        Assert.Null(initial.Threshold);
+        Assert.Equal(SemanticCacheLevel.Off, initial.Level);
         Assert.Equal(0, initial.Hits);
 
         // Nobody has asked anything yet, which is not the same as "it never hits".
         Assert.Null(initial.HitRate);
 
         var set = await TestRequests.SendAsync(
-            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies, new { threshold = 0.95m });
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies, new { level = "Balanced" });
         set.EnsureSuccessStatusCode();
 
-        Assert.Equal(0.95m, (await GetCacheAsync(client, tenantId, agentId, cookies)).Threshold);
+        Assert.Equal(SemanticCacheLevel.Balanced, (await GetCacheAsync(client, tenantId, agentId, cookies)).Level);
+
+        // The number behind the level is never part of the payload — the same rule that
+        // keeps temperature and the model name out of ORB-C10's screens.
+        var raw = await TestRequests.SendAsync(
+            client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies);
+        var json = await raw.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("threshold", json, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData(0.5)]
-    [InlineData(1.5)]
-    public async Task A_threshold_outside_the_useful_range_is_refused(decimal threshold)
+    [Fact]
+    public async Task A_level_that_does_not_exist_is_refused()
     {
         var client = TestRequests.CreateClient(_fixture);
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
 
         var response = await TestRequests.SendAsync(
-            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies, new { threshold });
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies, new { level = "Maxima" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -75,7 +81,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var read = await TestRequests.SendAsync(
             client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", outsider);
         var write = await TestRequests.SendAsync(
-            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", outsider, new { threshold = 0.95m });
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", outsider, new { level = "Balanced" });
 
         Assert.Equal(HttpStatusCode.Forbidden, read.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);
@@ -88,7 +94,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var account = await ConnectAsync(client, tenantId, cookies);
         var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
-        await SetThresholdAsync(client, tenantId, agentId, cookies, 0.95m);
+        await SetLevelAsync(client, tenantId, agentId, cookies, SemanticCacheLevel.Conservative);
 
         _fixture.Llm.NextReply = "Abrimos de 7 a.m. a 7 p.m.";
 
@@ -121,7 +127,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var account = await ConnectAsync(client, tenantId, cookies);
         var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
-        await SetThresholdAsync(client, tenantId, agentId, cookies, 0.95m);
+        await SetLevelAsync(client, tenantId, agentId, cookies, SemanticCacheLevel.Conservative);
 
         _fixture.Llm.NextReply = "Abrimos de 7 a.m. a 7 p.m.";
         await AskAsync(client, account.ExternalId, "573002220001", "¿hasta qué hora abren?");
@@ -140,7 +146,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var (_, _, firstTenant, firstCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Panadería Uno");
         var firstAccount = await ConnectAsync(client, firstTenant, firstCookies);
         var firstAgent = await EnableDefaultAgentAsync(client, firstTenant, firstCookies);
-        await SetThresholdAsync(client, firstTenant, firstAgent, firstCookies, 0.95m);
+        await SetLevelAsync(client, firstTenant, firstAgent, firstCookies, SemanticCacheLevel.Conservative);
 
         _fixture.Llm.NextReply = "El pedido mínimo es de 50.000 pesos.";
         await AskAsync(client, firstAccount.ExternalId, "573003330001", "¿cuál es el pedido mínimo?");
@@ -148,7 +154,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var (_, _, secondTenant, secondCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client, "Panadería Dos");
         var secondAccount = await ConnectAsync(client, secondTenant, secondCookies);
         var secondAgent = await EnableDefaultAgentAsync(client, secondTenant, secondCookies);
-        await SetThresholdAsync(client, secondTenant, secondAgent, secondCookies, 0.95m);
+        await SetLevelAsync(client, secondTenant, secondAgent, secondCookies, SemanticCacheLevel.Conservative);
 
         _fixture.Llm.NextReply = "El pedido mínimo acá es de 20.000 pesos.";
         var reply = await AskAsync(client, secondAccount.ExternalId, "573003330002", "¿cuál es el pedido mínimo?");
@@ -171,7 +177,7 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
         var account = await ConnectAsync(client, tenantId, cookies);
         var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
-        await SetThresholdAsync(client, tenantId, agentId, cookies, 0.95m);
+        await SetLevelAsync(client, tenantId, agentId, cookies, SemanticCacheLevel.Conservative);
 
         _fixture.Llm.NextReply = "El domicilio es gratis.";
         await AskAsync(client, account.ExternalId, "573004440001", "¿cobran domicilio?");
@@ -233,11 +239,12 @@ public sealed class SemanticCacheApiTests : IClassFixture<TenantsApiFixture>
         return (await response.Content.ReadFromJsonAsync<SemanticCacheDto>(TestRequests.JsonOptions))!;
     }
 
-    private static async Task SetThresholdAsync(
-        HttpClient client, Guid tenantId, Guid agentId, CookieJar cookies, decimal threshold)
+    private static async Task SetLevelAsync(
+        HttpClient client, Guid tenantId, Guid agentId, CookieJar cookies, SemanticCacheLevel level)
     {
         var response = await TestRequests.SendAsync(
-            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies, new { threshold });
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache", cookies,
+            new { level = level.ToString() });
         response.EnsureSuccessStatusCode();
     }
 
