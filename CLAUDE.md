@@ -255,7 +255,7 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **`IOutboundMessageService.SendAgentReplyAsync` is how the reply leaves**, not a private copy of the send path: the acceptance criterion is explicit that it goes out "por la cola de salida normal, con su control de tasa", so it inherits ORB-B05's persist-first guarantee, retry policy and per-account rate limit. It takes no caller id and runs no permission check — the sender isn't a person; what stands in for authorization is that the conversation already has this assistant assigned. `Message.OutboundAgentText` enforces the pairing that makes that legible: `sent_by_user_id` null, `ai_run_id` always set.
 - **`IAiRunRecorder.Record` now returns the staged run's id** so the reply can carry it. Like `IAuditLogger`, it still only stages — `SendAgentReplyAsync`'s own `SaveChangesAsync` commits the run, the reply, the queued job and the agent assignment in one transaction. The one exception: a model that answers with nothing still gets its run saved, because the call was made and it cost money.
 - **A message with no text is not answered at all.** An image with no caption, a sticker, a location: replying "no entendí" to every photo a customer sends is worse than letting a person look at it.
-- **Known gaps:** the `HumanIsHandlingIt` guard can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15 — so it's written and unproven. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
+- **Known gaps:** the `HumanIsHandlingIt` guard's `AssigneeId` half can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15. Its ORB-C07 half (`IsWaitingForHuman`) is proven end to end by `HandoffApiTests`. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
 
 ### Guardrails (ORB-C06)
 
@@ -263,7 +263,7 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 
 - **Blocked topics are not part of the draft.** `PUT /api/tenants/{tenantId}/ai-agents/{agentId}/guardrails` applies immediately, like `PATCH .../enabled`. A setting whose purpose is to make the assistant *stop* talking about something cannot wait for Publicar. `SaveAiAgentBody` does not carry it.
 - **Whole-word matching, not substring**, case- and accent-insensitive. Substring would fire "talla" on "pantalla", "precio" on "apreciamos", "cita" on "felicitaciones" — and the failure is silence, which nobody can diagnose from outside. Accepted cost: "precio" does not catch "precios"; the owner adds the plural. Pinned by `AgentGuardrailsTests` so nobody "fixes" it back.
-- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso", because ORB-C07 does not exist and nobody is notified.
+- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso". Since ORB-C07 an out-of-scope subject also puts the conversation in the human queue, but the default still does not promise a reply — nobody is assigned until ORB-B15.
 - **An out-of-scope subject gets that sentence; a loop or an exhausted window gets silence.** The last two mean the assistant already said too much.
 - **Every block stages `agent.reply_blocked`** `{conversationId, agentId, reason, topic}`. `topic` is a *deliberate exception* to the outbox's ids-and-enums rule: it is free text the owner wrote (their configuration, not customer data), and it is the only thing that answers "why did my assistant go quiet?".
 - The out-of-scope reply is sent through `IOutboundMessageService.SendSystemReplyAsync` and lands as `authorKind: "System"` — the first producer of that value.
@@ -279,14 +279,14 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **A failing tool never breaks the reply.** Bad arguments, a missing stage, or an exception all become `AgentToolResult(Succeeded: false)` with a Spanish sentence the model can relay; internal error text never reaches the model or the customer.
 - **`LlmMessage.AssistantToolCalls` + `tool_calls` on the OpenAI wire** were missing from ORB-C01: the chat format rejects a `tool` message that doesn't answer a `tool_calls` entry in the turn before it, so the second round of any tool loop would have failed against a real provider while passing every fake. Known gap: the Ollama adapter does not echo `tool_calls` yet (it has no configured `BaseUrl` in this deployment).
 - **`AiTool.ResultsIn`** names the module where a tool's result shows up (`"pipeline"` for both opportunity tools, null for retrieval). It exists because the frontend asked to tell "available" from "available, but you cannot see what it did yet" — this answers the half the backend actually knows. Whether a given screen has shipped is the frontend's own fact; hardcoding it here would be wrong the day it does.
-- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
+- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to). `escalar_a_humano` was unavailable for the matching reason until ORB-C07 built the queue it hands over to. `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
 - Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
 
 ### Registro de consumo de IA (ORB-C09, parte que no depende de A13)
 
 `ai_runs` gains two orbita-schema.dbml columns: `tools_called` (jsonb, tool names) and `retrieved_chunk_ids` (uuid[]). One run per model call, so in a tool loop the round that asked for tools carries them and the follow-up round carries none — that is literally what happened, and what billing per action needs. Retrieved fragments are recorded on the first round only: they went into every round's prompt but were retrieved once, and a sum over runs must not double-count them. Existing rows get `[]` / `'{}'`.
 
-**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `was_handoff`, `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — the first needs ORB-C07, the others have no consumer, and this repo does not pre-create columns for features that do not exist.
+**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — they have no consumer (`was_handoff` was deferred too, and ORB-C07 added it), and this repo does not pre-create columns for features that do not exist.
 
 ### Enrutador (ORB-C08)
 
@@ -370,6 +370,84 @@ frontend coordination because nobody had decided where the cases live.
   already gone is not an error.
 - The FK to `ai_agents` is **CASCADE**, unlike `ai_runs`' RESTRICT: scratch work must never
   be the reason a deletable assistant cannot be deleted.
+
+### Traspaso a humano (ORB-C07)
+
+Last story of Track C, and it was **mis-labelled as blocked by ORB-B15** through three
+handoff documents. B15 asks "which of my teammates is handling this conversation"; C07
+asks "is this conversation still the assistant's". Those are different questions, and only
+the second one is needed to stop lying to a customer who asks for a person. The queue —
+conversations waiting for *anybody* — is Track C's to build; picking a person from it is
+still B15's.
+
+- **`conversations` gains three columns** (`handoff_requested_at`, `handoff_reason`,
+  `handoff_summary`), not in orbita-schema.dbml — same class of addition as
+  `last_message_preview`. The timestamp is its own column rather than inferred from
+  `status = 'pending'` because status changes for ordinary reasons: `RegisterInbound`
+  reopens a Pending thread on the next message, which is right for a thread nobody got to
+  and would silently hand a handed-over conversation back to the assistant. That one
+  `if (!IsWaitingForHuman)` in `Conversation.RegisterInbound` is the whole last acceptance
+  criterion ("el agente no vuelve a intervenir salvo que un humano lo reactive").
+- **Four triggers, and the split between them is deliberate.** `HandoffTriggers.Detect`
+  (Domain, pure) reads the customer's own words before any model call — an explicit request
+  and plain frustration — with the same whole-word matching as C06's blocked topics.
+  `escalar_a_humano` covers the half a phrase list never will (sarcasm, politeness masking
+  anger), which is why it is the model's tool and not a keyword. A blocked topic is the
+  third. The fourth is the assistant failing: a loop, an exhausted window, an unsendable
+  answer, or no text at all.
+- **The phrase list errs toward *not* handing over**, the opposite direction from a normal
+  guardrail, because the costs are asymmetric: a false positive takes the conversation away
+  from the assistant until a person gives it back, so an ordinary message gets no instant
+  answer it could have had. `"ya te dije"` and friends are deliberately absent — repetition
+  is judged objectively instead (the same message three times), which needs no guess about
+  tone.
+- **Every reason the assistant goes quiet now ends in the queue.** Before C07, C06's three
+  outcomes left the customer with the assistant that had just declined to help them, which
+  is the "círculo" the story is written against. What did *not* change is what the customer
+  hears: an out-of-scope subject still gets the owner's sentence, a loop or an exhausted
+  window still gets silence, and a garbled model answer still gets silence — an apology for
+  a failure they have not seen is one more message from an assistant with nothing to say.
+- **Routing and business-hours decisions never hand over.** `LeftForTeamByRule` and
+  `OutsideBusinessHours` are per-message decisions; a handoff is sticky, so marking them
+  would permanently disable the assistant on that thread because one message arrived at 2am.
+- **The summary costs one cheap model call per handoff, and never blocks it.**
+  `LlmTask.Classify` (the cheap tier — a three-sentence internal note has the same economics
+  as a classification, and a task of its own would mean a config entry per provider for a
+  distinction nobody would act on). A provider outage logs a warning and hands the
+  conversation over **without** a summary: the handoff is the promise, the summary is a
+  convenience, and losing the second must never cost the first. When the model hands over
+  through the tool it writes the note itself (`resumen`), which skips the call — it is the
+  only party in the exchange holding the whole context.
+- **The summary is customer data and never leaves the RLS'd table.** The outbox event
+  (`conversation.handoff_requested`) carries ids and the reason enum only — not the summary,
+  unlike C06's `topic`, which was the *owner's* configuration and therefore safe to put
+  there.
+- **`ai_runs.was_handoff`** is finally written: it is in the DBML and ORB-C09 left it out
+  because nothing could set it before this story.
+- **The queue pages with a cursor and reports a total.** The frontend asked for both and was
+  right about why: a queue is precisely the list that grows when the team cannot keep up, so
+  a silent cap of 50 would hide the 51st customer on the worst day the business has. It is
+  served **oldest wait first** — the person who has waited longest is closest to giving up,
+  and newest-first starves exactly them. The cursor encodes **ticks, not milliseconds**:
+  ascending keyset paging with `>` re-includes the boundary row when the cursor is floored,
+  which made page two start with page one's last row. ORB-C02's descending list with `<` is
+  unaffected, which is why it took a paging test on this list to surface it.
+- **`handoffReply` is optional in `PUT .../guardrails`.** The frontend spotted that a
+  required field on an endpoint that already had a consumer would break its limits screen
+  for a business owner rather than for us; null keeps the stored sentence, and existing rows
+  are seeded with the default by the migration. Its default promises only what the product
+  does — the assistant stops answering and the conversation is left for the team — and
+  deliberately not "en un momento te escriben", which would be C06's walked-back promise
+  creeping back in through a different sentence.
+- **New permission `ViewInbox`** (all four roles) for reading the queue; giving a
+  conversation back needs `SendMessages`, because handing a customer back to a machine is
+  acting on the conversation rather than viewing it. ORB-B12's inbox listing is the other
+  reader `ViewInbox` was named for.
+- **Known gap: "se notifica en vivo" is the outbox event, not a WebSocket push.** The
+  frontend confirmed it has no SignalR client at all (no `@microsoft/signalr`, no
+  `HubConnection`), and ORB-B14 owns the inbox's realtime story, so a hub here would be
+  code with no consumer and a guaranteed collision. Polling `GET .../handoffs` is what the
+  dashboard does today — the same answer C02 gave for document status.
 
 ## Mandatory engineering conventions
 

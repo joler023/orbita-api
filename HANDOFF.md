@@ -6,6 +6,25 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-16 (3)** — **`ORB-C07` (traspaso a humano) implementada. Con esto Track C no tiene historias abiertas.** Suite completa: **631 unitarias + 281 de integración, cero fallos**; `dotnet format --verify-no-changes` limpio. Rama `feature/c07-human-handoff`.
+
+**Estaba mal etiquetada como bloqueada por `ORB-B15`.** B15 responde "¿cuál de mis compañeros atiende esta conversación?"; C07 responde "¿esta conversación sigue siendo del asistente?". Para dejar de mentirle a un cliente que pide una persona solo hace falta la segunda: una cola de conversaciones esperando a *alguien*. La cola es de Track C; elegir a quién le toca sigue siendo B15. Ver `CLAUDE.md`, "Traspaso a humano (ORB-C07)", para las decisiones.
+
+Lo que quedó:
+
+- Cuatro disparadores: el cliente lo pide, se nota frustrado (frases + el mismo mensaje tres veces), tema bloqueado (C06), o el asistente se rinde (herramienta `escalar_a_humano`, bucle, ventana agotada, respuesta vacía o inválida). Los dos primeros no gastan llamada al modelo.
+- `GET /api/tenants/{t}/handoffs` → `{ items, nextCursor, total }`, espera más antigua primero. `POST .../conversations/{id}/return-to-assistant` devuelve la conversación al asistente.
+- Una vez traspasada, el asistente no vuelve a contestar aunque el cliente siga escribiendo (`Conversation.RegisterInbound` ya no reabre una conversación en cola).
+- Resumen escrito una vez al traspasar (llamada barata, `LlmTask.Classify`); si el proveedor está caído, el traspaso ocurre igual sin resumen. `ai_runs.was_handoff` por fin se escribe.
+- `escalar_a_humano` pasa a `isAvailable: true`, `resultsIn: "inbox"`. Nuevo permiso `ViewInbox` (los cuatro roles). `handoffReply` nuevo y **opcional** en `PUT .../guardrails`.
+- Migración `AddConversationHandoff` (tres columnas en `conversations`, `was_handoff` en `ai_runs`, `handoff_reply` en `ai_agents`).
+
+**El contrato se cerró con el frontend antes de terminarlo**, y cambió tres cosas: la cola pagina con cursor y trae `total` (un tope silencioso de 50 esconde al cliente 51 justo el peor día), `handoffReply` es opcional (obligatorio habría roto su pantalla de límites), y no hay empujón por SignalR porque el frontend no tiene cliente de SignalR (verificado en su repo). La prueba de paginación destapó un bug real: el cursor en milisegundos repetía la última fila en orden ascendente; ahora va en ticks.
+
+**Deuda conocida:** "se notifica en vivo" es el evento `conversation.handoff_requested` del outbox, no un WebSocket — eso es `ORB-B14`. La pantalla de la cola no tiene dueño decidido (el frontend no toca la bandeja de Track B sin que su humano lo decida).
+
+**Rareza de la máquina, otra vez:** Smart App Control bloqueó el `Orbita.IntegrationTests.dll` de Debug recién compilado en esta rama. **`dotnet test -c Release` lo esquiva** (otra ruta de salida) sin tocar SAC. Mejor workaround que "cambiar de rama".
+
 **2026-09-16 (2)** — Dos cosas, ninguna historia nueva.
 
 **El stack de Track C ya no está sin mergear.** Las PRs `#33` a `#42` (todo lo de la Épica C2 más los fixes de base) ya están en `develop` — se mergearon después de que se escribiera la entrada de abajo, y ni `HANDOFF.md` ni `local/checklist-track-c.md` se habían actualizado para reflejarlo. Solo queda abierta `#45` (`feature/c11-test-cases`), retargeteada de `feature/c12-semantic-cache` (ya mergeada, huérfana) a `develop`.
@@ -179,7 +198,7 @@ Track C (Agentes de IA — foco actual):
 - [x] `ORB-C06` Guardrails — temas bloqueados, límite de respuestas por ventana, bucles, y revisión de la respuesta
 - [x] `ORB-C08` Enrutador — reglas ordenadas por tenant y horario de atención por asistente
 - [x] `ORB-C09` Consumo de IA — `tools_called` y `retrieved_chunk_ids` en `ai_runs`; la facturación es `ORB-A13`, que no existe
-- [ ] `ORB-C07` Traspaso a humano — **bloqueada por `ORB-B15`** (asignación a personas): sin cola humana, prometerle un traspaso al cliente sería mentirle
+- [x] `ORB-C07` Traspaso a humano — cola de conversaciones esperando a una persona, con resumen; el aviso en vivo es el evento del outbox (el WebSocket es `ORB-B14`) y asignar a alguien concreto sigue siendo `ORB-B15`
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
