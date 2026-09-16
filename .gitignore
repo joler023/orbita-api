@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 #local folder
 /local/
+
+# Claude Code session config (skills/commands): herramienta del desarrollador, no del repo
+/.claude/
