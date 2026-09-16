@@ -77,7 +77,7 @@ public sealed class ConversationHandoffServiceTests
     }
 
     [Fact]
-    public async Task Handing_over_writes_the_summary_the_event_and_the_audit_entry()
+    public async Task Handing_over_commits_the_state_the_event_and_the_audit_entry_without_a_model_call()
     {
         var conversation = Conversation();
 
@@ -86,13 +86,12 @@ public sealed class ConversationHandoffServiceTests
 
         Assert.True(handedOver);
         Assert.True(conversation.IsWaitingForHuman);
-        Assert.Equal("El cliente pregunta por una devolución fuera de plazo.", conversation.HandoffSummary);
 
-        // The run that paid for the summary is the one flagged as the handoff —
-        // orbita-schema.dbml's was_handoff, unset until this story existed.
-        _runs.Verify(
-            r => r.Record(_tenantId, _agentId, It.IsAny<LlmUsage>(), conversation.Id, null, null, true),
-            Times.Once);
+        // No model on this path. Measured against the managed database, writing the note
+        // here made the customer wait 13.8 s for the sentence telling them they were being
+        // put through; the note is written afterwards, in reaction to the event.
+        Assert.Null(conversation.HandoffSummary);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
 
         _outbox.Verify(
             o => o.StageAsync(
@@ -129,26 +128,46 @@ public sealed class ConversationHandoffServiceTests
 
         Assert.False(handedOver);
 
-        // No second summary, no second event: nothing changed, so nothing is paid for.
-        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        // No second event and no relabelling: nothing changed, so nothing is recorded.
+        Assert.Equal(HandoffReason.CustomerAsked, conversation.HandoffReason);
         _outbox.VerifyNoOtherCalls();
-        Assert.Equal(0, _unitOfWork.TenantScopedSaveCount);
+        _audit.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task A_model_outage_does_not_keep_the_customer_from_reaching_a_person()
+    public async Task The_summary_is_written_afterwards_and_billed_as_the_handoff()
     {
         var conversation = Conversation();
+        await _sut.RequestAsync(
+            _tenantId, conversation.Id, _agentId, HandoffReason.CustomerAsked, summary: null, CancellationToken.None);
+
+        await _sut.WriteSummaryAsync(_tenantId, conversation.Id, _agentId, CancellationToken.None);
+
+        Assert.Equal("El cliente pregunta por una devolución fuera de plazo.", conversation.HandoffSummary);
+
+        // orbita-schema.dbml's was_handoff, unset until this story existed.
+        _runs.Verify(
+            r => r.Record(_tenantId, _agentId, It.IsAny<LlmUsage>(), conversation.Id, null, null, true),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_model_outage_delays_the_summary_instead_of_losing_it()
+    {
+        var conversation = Conversation();
+        await _sut.RequestAsync(
+            _tenantId, conversation.Id, _agentId, HandoffReason.CustomerAsked, summary: null, CancellationToken.None);
+
         _llm
             .Setup(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new LlmProviderException("openrouter", "every provider is down", isTransient: true));
 
-        var handedOver = await _sut.RequestAsync(
-            _tenantId, conversation.Id, _agentId, HandoffReason.CustomerAsked, summary: null, CancellationToken.None);
+        // It propagates on purpose: the caller is the outbox dispatcher, which retries the
+        // event with backoff. Swallowing it would lose the note for good.
+        await Assert.ThrowsAsync<LlmProviderException>(() =>
+            _sut.WriteSummaryAsync(_tenantId, conversation.Id, _agentId, CancellationToken.None));
 
-        // The whole point: the handoff is the product's promise, the summary is a
-        // convenience. Losing the second must never cost the first.
-        Assert.True(handedOver);
+        // And the handoff the customer is waiting on was already committed before any of it.
         Assert.True(conversation.IsWaitingForHuman);
         Assert.Null(conversation.HandoffSummary);
     }
@@ -165,8 +184,20 @@ public sealed class ConversationHandoffServiceTests
             HandoffReason.AgentDecision,
             summary: "  Quiere devolver un pedido de la semana pasada.  ",
             CancellationToken.None);
+        await _sut.WriteSummaryAsync(_tenantId, conversation.Id, _agentId, CancellationToken.None);
 
         Assert.Equal("Quiere devolver un pedido de la semana pasada.", conversation.HandoffSummary);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task No_summary_is_paid_for_once_a_person_has_given_the_conversation_back()
+    {
+        var conversation = Conversation(alreadyWaiting: true);
+        conversation.ReturnToAssistant();
+
+        await _sut.WriteSummaryAsync(_tenantId, conversation.Id, _agentId, CancellationToken.None);
+
         _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

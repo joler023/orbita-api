@@ -42,6 +42,8 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
         var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
         await EnableDefaultAgentAsync(client, tenantId, cookies);
 
+        _fixture.Llm.NextReply = "El cliente pidió hablar con una persona.";
+
         // Positive control: the queue is readable and empty, so the assertion below is
         // about a conversation arriving and not about the endpoint answering nothing.
         var before = await QueueAsync(client, tenantId, cookies);
@@ -61,8 +63,12 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
         // with, and a queue of UUIDs cannot be read by the person it is for.
         Assert.False(string.IsNullOrWhiteSpace(waiting.ContactName));
 
-        // The note is what makes the queue worth reading, and it is the model's.
-        Assert.Equal("El cliente pidió hablar con una persona.", waiting.Summary);
+        // The note is what makes the queue worth reading, and it is the model's. It arrives
+        // a moment after the handoff, written in reaction to the event, so the customer
+        // never waits on it — which means a test has to wait for it instead.
+        await Eventually.AssertAsync(async () =>
+            (await QueueAsync(client, tenantId, cookies)).Items.SingleOrDefault()?.Summary
+                == "El cliente pidió hablar con una persona.");
 
         // The sentence the customer got is the owner's, not the model's — a system
         // message, which on the wire is the pair (no sender, no run). AuthorKind itself is

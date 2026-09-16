@@ -110,6 +110,38 @@ public sealed class ConversationHandoffTests
     }
 
     [Fact]
+    public void A_summary_written_afterwards_fills_an_empty_note()
+    {
+        var conversation = Open();
+        conversation.RequestHumanHandoff(HandoffReason.CustomerAsked, null, Now);
+
+        Assert.True(conversation.AttachHandoffSummary("  Pidió una persona por un pedido equivocado.  "));
+        Assert.Equal("Pidió una persona por un pedido equivocado.", conversation.HandoffSummary);
+    }
+
+    [Fact]
+    public void A_summary_never_overwrites_the_assistants_own_note()
+    {
+        var conversation = Open();
+        conversation.RequestHumanHandoff(HandoffReason.AgentDecision, "La nota del asistente.", Now);
+
+        Assert.False(conversation.AttachHandoffSummary("Una nota generada después."));
+        Assert.Equal("La nota del asistente.", conversation.HandoffSummary);
+    }
+
+    [Fact]
+    public void A_summary_arriving_after_the_conversation_was_given_back_is_dropped()
+    {
+        // The model can take seconds; a person can return the conversation in between.
+        var conversation = Open();
+        conversation.RequestHumanHandoff(HandoffReason.CustomerAsked, null, Now);
+        conversation.ReturnToAssistant();
+
+        Assert.False(conversation.AttachHandoffSummary("Llegó tarde."));
+        Assert.Null(conversation.HandoffSummary);
+    }
+
+    [Fact]
     public void A_long_summary_is_cut_to_the_column_it_lands_in()
     {
         var conversation = Open();
