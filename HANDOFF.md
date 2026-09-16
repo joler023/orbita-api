@@ -6,6 +6,25 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-16** — **Épica C2 completa: `ORB-C04`, `C05`, `C06`, `C08`, `C09` y `C12` implementadas, probadas y verificadas con los modelos reales contra Neon.** La suite entera está en verde: **573 unitarias + 263 de integración, cero fallos**, y `dotnet format --verify-no-changes` limpio.
+
+Lo que quedó funcionando de punta a punta (webhook firmado → cola → worker → outbox → asistente → cola de salida), comprobado contra Neon con OpenRouter de verdad:
+
+- **C04** — el asistente responde en español, apoyado en los documentos indexados, y la conversación queda con su `ai_agent_id`.
+- **C06** — un tema bloqueado responde la frase del dueño como mensaje de sistema, sin gastar una llamada al modelo, y deja `agent.reply_blocked` en el outbox con el motivo y el tema.
+- **C08** — una regla por palabra clave sin agente deja la conversación para el equipo: el asistente no contesta.
+- **C05** — el asistente registró una oportunidad real con `crear_oportunidad` (`tools_called: ['crear_oportunidad']` en `ai_runs`, auditada con `actor_type = AiAgent`) y siguió contestando en la misma respuesta.
+- **C12** — la misma pregunta de un segundo cliente se respondió **desde la caché, sin llamar al modelo**: USD 0.000169 la primera vez, ~USD 0.0000003 la segunda.
+
+Gasto real de OpenRouter hasta ahora: **USD 0.0011 de los 5 de saldo** (`total_usage` de la API). Las filas caras de `ai_runs` son del seed, no de gasto real.
+
+Las tres migraciones que faltaban (`AddAiRunToolsAndChunks`, `AddRoutingRulesAndBusinessHours`, `AddSemanticAnswerCache`) ya están aplicadas en Neon.
+
+Lo que sigue sin existir, a propósito: `ORB-C07` (traspaso a humano) depende de `ORB-B15`; `agendar_cita` y `escalar_a_humano` siguen no disponibles porque no hay agenda ni cola humana detrás; la condición "etiqueta" del enrutador no existe porque no hay tabla de etiquetas; y `ORB-A13` (medición de consumo) es quien debe leer `ai_runs`.
+
+### Antes de esto
+
+
 **2026-09-15 (5)** — **La suite de integración corrió entera por primera vez y está en verde: 512 unitarias + 248 de integración, cero fallos.** Antes de esto nunca se había ejecutado completa (la máquina donde se escribió no tenía Docker), y al correrla aparecieron 21 fallos: 16 ya estaban en `develop`.
 
 Detrás de esos 21 había **ocho bugs reales**, no pruebas mal escritas. Siete de producción:
@@ -142,10 +161,13 @@ Track C (Agentes de IA — foco actual):
 - [x] `ORB-C10` Constructor de agentes — solo el backend; las pantallas 2.5–2.8 son del frontend
 - [x] `ORB-C11` Banco de pruebas — las trazas de 4 de las 5 herramientas esperan a `ORB-D05`/`ORB-B03`
 - [x] `ORB-C13` Selección de modelo por tarea
-- [ ] `ORB-C12` Caché semántico — desbloqueada, sin empezar
-- [ ] `ORB-C04` El agente responde — necesita `ORB-B03` (mensajes, Track B)
-- [ ] `ORB-C05` El agente ejecuta acciones — necesita `ORB-D05` (oportunidades, Track D)
-- [ ] `ORB-C06` Guardrails · `ORB-C07` Traspaso a humano · `ORB-C08` Enrutador · `ORB-C09` Consumo de IA — encadenadas detrás de C04
+- [x] `ORB-C12` Caché semántico — apagada por defecto; se enciende con un umbral por asistente
+- [x] `ORB-C04` El agente responde — verificado con modelos reales contra Neon
+- [x] `ORB-C05` El agente ejecuta acciones — `crear_oportunidad` y `mover_etapa`; `agendar_cita`/`escalar_a_humano` siguen no disponibles
+- [x] `ORB-C06` Guardrails — temas bloqueados, límite de respuestas por ventana, bucles, y revisión de la respuesta
+- [x] `ORB-C08` Enrutador — reglas ordenadas por tenant y horario de atención por asistente
+- [x] `ORB-C09` Consumo de IA — `tools_called` y `retrieved_chunk_ids` en `ai_runs`; la facturación es `ORB-A13`, que no existe
+- [ ] `ORB-C07` Traspaso a humano — **bloqueada por `ORB-B15`** (asignación a personas): sin cola humana, prometerle un traspaso al cliente sería mentirle
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
@@ -191,4 +213,6 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-B02`: `feature/webhook-ingestion` está apilada sobre `feature/whatsapp-channel-connect`, no sobre `develop`.** Antes de abrir su propio PR hay que mergear B01 a `develop` primero y luego rebasar esta rama — si se abre el PR tal cual, arrastra los 6 commits de B01. Mismo problema de Docker que B01 para `WhatsAppWebhooksControllerTests`. El test de carga/concurrencia del plan original no se escribió (ver CLAUDE.md).
 - **`ORB-B03` mergeó `feature/d02-contactos` en vez de esperar que llegue a `develop`** (decisión del usuario, ver arriba). El `Contact` de Track D sigue usando sus propios nombres de columna (`phone`, `instagram_username`), que NO coinciden con el DBML (`phone_e164`, `ig_user_id`) — deuda de reconciliación sin resolver, documentada pero no arreglada. `Contact.InstagramUserId`/`ig_user_id` (añadido en B03) sí sigue el nombre del DBML. `NormalizePhone` ya canoniza a solo dígitos (sin `+`) para calzar con el `wa_id` de Meta.
 - **`ORB-B03`: `TenantIsolationTests` no se extendió** para conversations/messages (el mecanismo de RLS ya está probado por otras tablas). Falta un test determinístico de fallo repetido del worker (`WorkerFailure_ThreeTimes_MarksDead` del plan original) — `InboundMessageFlowTests` usa polling con `Eventually` en vez de un adapter fake inyectado por `WithWebHostBuilder`.
-- **B01-B08 completos, pero sin verificación real de extremo a extremo**: sin app de Meta real (ver arriba) ni Docker en esta máquina, todo el flujo (conectar → recibir → responder → estado de entrega → reintento) solo está probado con los fakes de `Orbita.IntegrationTests` (compilan, no corren) y con las unitarias. Antes de mergear a `develop` hay que: (1) crear la app de Meta y configurar `Channels:Meta:*`, (2) tener Postgres disponible (local o Docker) y correr `dotnet ef database update` + `dotnet test Orbita.slnx` completo, (3) probar el flujo real con Yaak/Scalar.
+- **B01-B08 y la épica C2 ya corrieron de verdad**: la suite completa está en verde contra Postgres real (Testcontainers) y el flujo entrante→respuesta se verificó contra Neon con los modelos reales. Lo que sigue sin probarse contra Meta de verdad es el envío saliente: **no hay app de Meta**, así que `WhatsAppCloudApiClient` nunca ha hablado con Graph API — los mensajes salen encolados y el despachador falla contra el fake. Crear la app de Meta sigue siendo el plazo externo más largo.
+- **`ORB-C12`: no hay limpieza de `agent_answer_cache`.** Una entrada cuya huella ya no coincide no se devuelve nunca más, pero tampoco se borra: es peso muerto, no un riesgo de corrección. Hace falta un job de retención antes de volumen real, igual que para `outbox_events`.
+- **La latencia p95 de `ORB-C04` (menos de 6 segundos) sigue sin medirse.** `ai_runs.latency_ms` es donde está el dato; en las corridas reales las llamadas de generación fueron de 2 a 5 segundos, pero nadie lo está midiendo de forma continua.
