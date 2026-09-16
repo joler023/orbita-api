@@ -6,6 +6,16 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-16 (2)** — Dos cosas, ninguna historia nueva.
+
+**El stack de Track C ya no está sin mergear.** Las PRs `#33` a `#42` (todo lo de la Épica C2 más los fixes de base) ya están en `develop` — se mergearon después de que se escribiera la entrada de abajo, y ni `HANDOFF.md` ni `local/checklist-track-c.md` se habían actualizado para reflejarlo. Solo queda abierta `#45` (`feature/c11-test-cases`), retargeteada de `feature/c12-semantic-cache` (ya mergeada, huérfana) a `develop`.
+
+Al rebasar `feature/c11-test-cases` sobre `origin/develop` para retargetear la PR, salió un cabo suelto real: el commit que agrega `businessHours` a `AiAgentDto` (`ORB-C08`, ver "Corrección del 2026-09-16 (tarde)" en `CLAUDE.md`) se había comiteado en `feature/c08-router` **después** de que la PR `#41` ya estuviera mergeada, y nadie abrió una PR de seguimiento — `develop` respondía el agente sin ese campo pese a que `CLAUDE.md` documenta que sí se devuelve. El rebase (sin conflictos) lo trae de vuelta a la línea principal en cuanto se mergee `#45`. Suite completa contra el resultado del rebase: **585 unitarias + 273 de integración, cero fallos**.
+
+**500 intermitente en el login (ver la entrada de abajo, "Lo que quedó a medias"): logging y 503 ya están.** Se aplicó el parche que había quedado guardado (`local/pendiente-500-logging-y-503.patch`, ya borrado): `GlobalExceptionHandler` ahora loguea toda excepción 5xx con su stack trace completo, y un `DbException` transitorio responde **503** en vez de 500. Cuatro pruebas nuevas (`GlobalExceptionHandlerTests`) fijan el mapeo y el nivel de log, sin necesitar Postgres real. **La hipótesis de la conexión inactiva de Neon sigue sin confirmar**: se levantó la API contra Neon, se logueó, se esperaron 7 minutos idle y se volvió a loguear — `200 OK` las dos veces, no reprodujo. Es esperable: el front ya lo reportó como intermitente (2 fallos en la misma hora que tuvo 25 logins seguidos exitosos), así que un solo intento sin reproducir no descarta la hipótesis. Con el logging ya en pie, el próximo 500 real en cualquier entorno va a dejar el mensaje de la excepción en el log — eso es lo que hacía falta para dejar de adivinar. No se tocó el pool de conexiones ni se agregó `EnableRetryOnFailure`: seguía sin haber evidencia de la causa real, que era la condición explícita para no hacerlo.
+
+### Antes de esto
+
 **2026-09-16** — **Épica C2 completa: `ORB-C04`, `C05`, `C06`, `C08`, `C09` y `C12` implementadas, probadas y verificadas con los modelos reales contra Neon.** La suite entera está en verde: **573 unitarias + 263 de integración, cero fallos**, y `dotnet format --verify-no-changes` limpio.
 
 Lo que quedó funcionando de punta a punta (webhook firmado → cola → worker → outbox → asistente → cola de salida), comprobado contra Neon con OpenRouter de verdad:
