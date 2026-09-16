@@ -14,7 +14,7 @@ public sealed record BusinessHours(IReadOnlyList<BusinessHoursSlot> Slots, Outsi
 {
     public const int MaxSlots = 21;
 
-    /// <exception cref="ArgumentException">Too many slots, or a slot that closes before it opens.</exception>
+    /// <exception cref="ArgumentException">No slots at all, too many, or a slot that closes before it opens.</exception>
     public static BusinessHours Create(IReadOnlyList<BusinessHoursSlot> slots, OutsideHoursBehavior outsideHours)
     {
         ArgumentNullException.ThrowIfNull(slots);
@@ -22,6 +22,17 @@ public sealed record BusinessHours(IReadOnlyList<BusinessHoursSlot> Slots, Outsi
         if (slots.Count > MaxSlots)
         {
             throw new ArgumentException($"At most {MaxSlots} time slots.", nameof(slots));
+        }
+
+        // An empty schedule is never what anyone meant. With LeaveForTeam it silences the
+        // assistant permanently — the failure nobody can diagnose from outside, arrived at
+        // by saving an empty form. With AssistantAnswers it is just a slower way of writing
+        // null. Turning the assistant off is what PATCH .../enabled is for.
+        if (slots.Count == 0)
+        {
+            throw new ArgumentException(
+                "Un horario sin franjas dejaría al asistente sin atender nunca. Para apagarlo, usa el interruptor del asistente.",
+                nameof(slots));
         }
 
         foreach (var slot in slots)

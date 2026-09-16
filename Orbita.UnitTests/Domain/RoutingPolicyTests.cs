@@ -70,4 +70,32 @@ public sealed class RoutingPolicyTests
         => Assert.Throws<ArgumentException>(() => BusinessHours.Create(
             [new BusinessHoursSlot(DayOfWeek.Friday, new TimeOnly(22, 0), new TimeOnly(6, 0))],
             OutsideHoursBehavior.AssistantAnswers));
+
+    [Fact]
+    public void An_overnight_shift_is_written_as_two_slots()
+    {
+        // 22:00 Friday to 02:00 Saturday. One slot cannot express it — closes < opens is
+        // refused above precisely so "is it open" is never ambiguous across midnight.
+        var hours = BusinessHours.Create(
+            [
+                new BusinessHoursSlot(DayOfWeek.Friday, new TimeOnly(22, 0), new TimeOnly(23, 59)),
+                new BusinessHoursSlot(DayOfWeek.Saturday, new TimeOnly(0, 0), new TimeOnly(2, 0)),
+            ],
+            OutsideHoursBehavior.LeaveForTeam);
+        var utc = TimeZoneInfo.Utc;
+
+        Assert.True(hours.IsOpenAt(new DateTimeOffset(2026, 9, 18, 23, 0, 0, TimeSpan.Zero), utc));
+        Assert.True(hours.IsOpenAt(new DateTimeOffset(2026, 9, 19, 1, 0, 0, TimeSpan.Zero), utc));
+        Assert.False(hours.IsOpenAt(new DateTimeOffset(2026, 9, 19, 3, 0, 0, TimeSpan.Zero), utc));
+    }
+
+    [Fact]
+    public void A_schedule_with_no_slots_is_refused()
+    {
+        // Saving an empty form would otherwise silence the assistant forever under
+        // LeaveForTeam, and mean nothing at all under AssistantAnswers. Turning it off is
+        // what PATCH .../enabled is for; this is the one shape of "mute" nobody asked for.
+        Assert.Throws<ArgumentException>(() => BusinessHours.Create([], OutsideHoursBehavior.LeaveForTeam));
+        Assert.Throws<ArgumentException>(() => BusinessHours.Create([], OutsideHoursBehavior.AssistantAnswers));
+    }
 }
