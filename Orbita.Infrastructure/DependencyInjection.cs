@@ -240,6 +240,7 @@ public static class DependencyInjection
         services.AddScoped<ITenantModelPreferenceRepository, TenantModelPreferenceRepository>();
         services.AddScoped<IRoutingRuleRepository, RoutingRuleRepository>();
         services.AddScoped<IAgentAnswerCacheRepository, AgentAnswerCacheRepository>();
+        services.AddScoped<IAgentTestCaseRepository, AgentTestCaseRepository>();
         services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
 
         services.AddSingleton<ITextExtractor, PlainTextExtractor>();

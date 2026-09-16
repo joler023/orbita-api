@@ -84,6 +84,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<AgentAnswerCacheEntry> AgentAnswerCache => Set<AgentAnswerCacheEntry>();
 
+    public DbSet<AgentTestCase> AgentTestCases => Set<AgentTestCase>();
+
     /// <summary>Deliberately has no query filter — see KnowledgeIndexingQueueEntry.</summary>
     public DbSet<KnowledgeIndexingQueueEntry> KnowledgeIndexingQueue => Set<KnowledgeIndexingQueueEntry>();
 
@@ -149,6 +151,9 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<AgentAnswerCacheEntry>()
             .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<AgentTestCase>()
+            .HasQueryFilter(c => tenantContext.TenantId == null || c.TenantId == tenantContext.TenantId);
 
         modelBuilder.Entity<TenantModelPreference>()
             .HasQueryFilter(p => tenantContext.TenantId == null || p.TenantId == tenantContext.TenantId);
