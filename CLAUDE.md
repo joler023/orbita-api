@@ -340,6 +340,34 @@ can be answered without a model call. Off by default, through `PUT/GET
 - **Cost:** a miss pays one embedding on top of the model call (retrieval embeds the same
   question again — accepted, it is ~USD 0.0000002); a hit pays only that embedding.
 
+### Casos de prueba guardados (ORB-C11, la mitad que faltaba)
+
+`agent_test_cases` (RLS'd, tenant-first index, not in orbita-schema.dbml — same class of
+addition as `routing_rules`) closes the acceptance criterion "se pueden guardar casos de
+prueba y volver a ejecutarlos tras un cambio", which had been open through three rounds of
+frontend coordination because nobody had decided where the cases live.
+
+- **Server, not the browser.** The value of a saved case is re-running it *after* a change,
+  and `localStorage` loses it exactly then — on another machine, in another browser, after
+  clearing site data. It is also the owner's work, not a preference of their browser.
+- **There is no "run" endpoint.** The screen reads a case and posts its turns to
+  `POST .../test-chat`. A second entry point would be a second place the prompt gets built,
+  which is the one thing the test bench must never have (it shares `AgentPromptBuilder` with
+  ORB-C04 so that what the owner tests is what the customer gets).
+- **`AgentTestTurn`/`AgentTestRole` moved from Application to Domain** so the saved case and
+  the exchange posted to the bench are literally the same type — the frontend asked for one
+  shape of the history, not two that happen to match today.
+- `GET|POST /api/tenants/{t}/ai-agents/{a}/test-cases`, `DELETE .../test-cases/{id}`.
+  `ManageAiAgents`, like the rest of ORB-C10/C11. Limits: 20 cases per assistant (409 past
+  it, counted inside the insert's own transaction so two saves cannot both see nineteen),
+  40 turns, an 80-char name the owner writes — never derived from the first message, because
+  a case called "hola" tells nobody what it is for six weeks later.
+- Deleting a case through **another assistant's route is a no-op**, not a success: the
+  tenant check alone would leave the `agentId` in the URL meaningless. Deleting one that is
+  already gone is not an error.
+- The FK to `ai_agents` is **CASCADE**, unlike `ai_runs`' RESTRICT: scratch work must never
+  be the reason a deletable assistant cannot be deleted.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
