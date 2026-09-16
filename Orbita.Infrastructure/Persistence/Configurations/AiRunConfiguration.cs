@@ -43,6 +43,13 @@ public sealed class AiRunConfiguration : IEntityTypeConfiguration<AiRun>
             .UsePropertyAccessMode(PropertyAccessMode.Field)
             .IsRequired();
 
+        // orbita-schema.dbml's was_handoff, left out by ORB-C09 because nothing could set
+        // it before ORB-C07 existed.
+        builder.Property(r => r.WasHandoff)
+            .HasColumnName("was_handoff")
+            .HasDefaultValue(false)
+            .IsRequired();
+
         builder.Property(r => r.CreatedAt).HasColumnName("created_at").IsRequired();
 
         // The billing rollup's access path (orbita-schema.dbml names this index).

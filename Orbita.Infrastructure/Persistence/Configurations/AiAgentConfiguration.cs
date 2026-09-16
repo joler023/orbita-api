@@ -64,6 +64,14 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
             .HasMaxLength(AiAgent.OutOfScopeReplyMaxLength)
             .IsRequired();
 
+        // ORB-C07. Seeded with its default for assistants that already existed, so nobody
+        // has to open the limits screen before their assistant can hand a customer over.
+        builder.Property(a => a.HandoffReply)
+            .HasColumnName("handoff_reply")
+            .HasMaxLength(AiAgent.HandoffReplyMaxLength)
+            .HasDefaultValue(AiAgent.DefaultHandoffReply)
+            .IsRequired();
+
         // ORB-C08: orbita-schema.dbml's ai_agents.business_hours jsonb. Nullable = always on.
         // A value converter rather than an owned JSON type: BusinessHours is a positional
         // record, and EF binds owned types through constructors it cannot satisfy for one.
