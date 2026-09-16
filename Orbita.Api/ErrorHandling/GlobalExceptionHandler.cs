@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Orbita.Application.Ai;
@@ -11,7 +12,9 @@ using Orbita.Application.Tenants;
 
 namespace Orbita.Api.ErrorHandling;
 
-public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
+public sealed class GlobalExceptionHandler(
+    IProblemDetailsService problemDetailsService,
+    ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -85,8 +88,25 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             // (ResilientLlmProvider). The caller can meaningfully retry.
             LlmProviderException => (StatusCodes.Status502BadGateway, "Model provider unavailable"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
+            // 503, not 500: a dropped connection or a database that went away is "try
+            // again", not "there is a bug here". Npgsql already classifies these
+            // (DbException.IsTransient), and the distinction is what tells an operator
+            // whether to look at the code or at the network.
+            DbException { IsTransient: true } => (StatusCodes.Status503ServiceUnavailable, "Database unavailable"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
+
+        // Nothing logged the exception before this: a 500 left the caller with "Unexpected
+        // error" and left the log with nothing to read, so the only evidence of a real
+        // failure was whatever EF happened to print on its way out.
+        logger.Log(
+            statusCode >= StatusCodes.Status500InternalServerError ? LogLevel.Error : LogLevel.Debug,
+            exception,
+            "{Method} {Path} failed with {StatusCode} ({Title}).",
+            httpContext.Request.Method,
+            httpContext.Request.Path.Value,
+            statusCode,
+            title);
 
         httpContext.Response.StatusCode = statusCode;
 
