@@ -161,7 +161,7 @@ Track C (Agentes de IA — foco actual):
 - [x] `ORB-C02` Base de conocimiento — el criterio "50 páginas en menos de 2 minutos" **sin medir**, necesita un modelo real conectado
 - [x] `ORB-C03` Búsqueda semántica — el criterio "200 ms con 100.000 fragmentos" **sin medir**, y con un límite conocido del índice (ver abajo)
 - [x] `ORB-C10` Constructor de agentes — solo el backend; las pantallas 2.5–2.8 son del frontend
-- [x] `ORB-C11` Banco de pruebas — las trazas de 4 de las 5 herramientas esperan a `ORB-D05`/`ORB-B03`
+- [x] `ORB-C11` Banco de pruebas — completo: los casos de prueba guardados (`agent_test_cases`) cerraron el criterio que faltaba
 - [x] `ORB-C13` Selección de modelo por tarea
 - [x] `ORB-C12` Caché semántico — apagada por defecto; se enciende con un umbral por asistente
 - [x] `ORB-C04` El agente responde — verificado con modelos reales contra Neon
