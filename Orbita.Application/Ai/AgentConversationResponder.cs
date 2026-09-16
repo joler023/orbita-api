@@ -169,9 +169,8 @@ public sealed class AgentConversationResponder(
 
         if (string.IsNullOrWhiteSpace(completion.Content))
         {
-            // Still save: the call was made and it cost money, so it is owed to the ledger
-            // whether or not it produced anything worth sending.
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            // The run is owed to the ledger — the call was made and it cost money — and
+            // HandOffAsync's own save is what commits it.
             logger.LogWarning("Model produced no text for conversation {ConversationId}.", conversationId);
 
             // The customer wrote and got nothing back, which is the círculo ORB-C07 is
