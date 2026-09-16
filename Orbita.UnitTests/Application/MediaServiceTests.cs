@@ -22,7 +22,9 @@ public sealed class MediaServiceTests
     public MediaServiceTests()
     {
         _urlSigner.Setup(s => s.CreateToken(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>())).Returns("signed-token");
-        _sut = new MediaService(_conversations.Object, _messages.Object, _urlSigner.Object, _authorization.Object, new FixedTimeProvider(Now));
+        _sut = new MediaService(
+            _conversations.Object, _messages.Object, _urlSigner.Object, _authorization.Object,
+            new PassThroughUnitOfWork(), new FixedTimeProvider(Now));
     }
 
     [Fact]

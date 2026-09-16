@@ -94,6 +94,18 @@ public sealed class Message
 
     public Guid? AiRunId { get; }
 
+    /// <summary>
+    /// Who wrote this, derived from the two columns that already know. Inbound is always
+    /// <see cref="MessageAuthorKind.Human"/> — it is the customer writing.
+    /// </summary>
+    public MessageAuthorKind AuthorKind => (SentByUserId, AiRunId) switch
+    {
+        (not null, _) => MessageAuthorKind.Human,
+        (null, not null) => MessageAuthorKind.AiAgent,
+        _ when Direction == MessageDirection.Inbound => MessageAuthorKind.Human,
+        _ => MessageAuthorKind.System,
+    };
+
     public MessageStatus Status { get; private set; }
 
     public string? ErrorCode { get; private set; }
@@ -190,6 +202,59 @@ public sealed class Message
             templateVariablesJson: null,
             sentByUserId,
             aiRunId: null,
+            MessageStatus.Queued,
+            sentAt: null,
+            deliveredAt: null,
+            readAt: null,
+            now);
+    }
+
+    /// <summary>
+    /// The assistant's own reply (ORB-C04). Same persist-first contract as
+    /// <see cref="OutboundText"/>, and deliberately a separate factory rather than a
+    /// nullable argument on it: an agent reply is never attributable to a person and
+    /// always attributable to an <c>ai_runs</c> row, and that pairing is an invariant
+    /// worth making impossible to get wrong. <c>sent_by_user_id</c> stays null so the
+    /// inbox can tell "the assistant answered" from "somebody answered" without
+    /// guessing, and <c>ai_run_id</c> is what links the message to what it cost.
+    /// </summary>
+    public static Message OutboundAgentText(
+        Guid tenantId,
+        Guid conversationId,
+        string body,
+        Guid aiRunId,
+        DateTimeOffset now)
+    {
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id is required.", nameof(tenantId));
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new ArgumentException("Body is required.", nameof(body));
+        }
+
+        if (aiRunId == Guid.Empty)
+        {
+            throw new ArgumentException("An agent reply must reference its ai_runs row.", nameof(aiRunId));
+        }
+
+        return new Message(
+            Guid.NewGuid(),
+            tenantId,
+            conversationId,
+            MessageDirection.Outbound,
+            MessageCategory.Service,
+            body,
+            mediaKey: null,
+            mediaMime: null,
+            externalId: null,
+            replyToExternalId: null,
+            templateId: null,
+            templateVariablesJson: null,
+            sentByUserId: null,
+            aiRunId,
             MessageStatus.Queued,
             sentAt: null,
             deliveredAt: null,

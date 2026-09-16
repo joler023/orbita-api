@@ -29,10 +29,9 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
     {
         var client = TestRequests.CreateClient(_fixture);
         var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
-        var connectResponse = await TestRequests.SendAsync(
-            client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", ownerCookies,
-            new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}"));
-        var account = (await connectResponse.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
+        // Connect *and* verify: an unverified account stays PendingVerification
+        // and refuses every send with 409 Channel not connected.
+        var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, ownerCookies);
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         var body = ImageMessagePayload(account.ExternalId, "573009998877", externalId, "media-fake-123");
@@ -41,8 +40,7 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
         Guid messageId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message?.MediaKey is null)
             {
@@ -66,18 +64,16 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
     {
         var client = TestRequests.CreateClient(_fixture);
         var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
-        var connectResponse = await TestRequests.SendAsync(
-            client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", ownerCookies,
-            new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}"));
-        var account = (await connectResponse.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
+        // Connect *and* verify: an unverified account stays PendingVerification
+        // and refuses every send with 409 Channel not connected.
+        var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, ownerCookies);
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         await SendWebhookAsync(client, TextMessagePayload(account.ExternalId, "573009998877", externalId, "hola"));
         Guid conversationId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message is null)
             {
@@ -97,14 +93,38 @@ public sealed class MediaMessageFlowTests : IClassFixture<TenantsApiFixture>
         var sendResponse = await TestRequests.SendAsync(
             client, HttpMethod.Post, $"/api/tenants/{tenantId}/conversations/{conversationId}/messages/media", ownerCookies,
             new SendMediaRequest(uploadUrl.Key, "image/jpeg", "mira esto"));
+
+        // Checked before reading the body: an error response deserializes into a DTO full
+        // of defaults, and the test then waits ten seconds for a message id that was never
+        // real. The failure that follows blames the worker for something the request did.
+        Assert.True(
+            sendResponse.IsSuccessStatusCode,
+            $"El envío de media falló con {(int)sendResponse.StatusCode}: {await sendResponse.Content.ReadAsStringAsync()}");
+
         var dto = await sendResponse.Content.ReadFromJsonAsync<MessageDto>(TestRequests.JsonOptions);
 
-        await Eventually.AssertAsync(async () =>
+        try
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
-            return await dbContext.Messages.AnyAsync(m => m.Id == dto!.Id && m.Status == MessageStatus.Sent);
-        });
+            await Eventually.AssertAsync(async () =>
+            {
+                await using var dbContext = _fixture.CreateOwnerDbContext();
+                return await dbContext.Messages.AnyAsync(m => m.Id == dto!.Id && m.Status == MessageStatus.Sent);
+            });
+        }
+        catch (Xunit.Sdk.XunitException)
+        {
+            // "Condition was not met" says nothing about a send pipeline with six places
+            // to stop at. The row itself knows which one.
+            await using var dbContext = _fixture.CreateOwnerDbContext();
+            var actual = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.Id == dto!.Id);
+            var job = await dbContext.OutboundMessageJobs.AsNoTracking().SingleOrDefaultAsync(j => j.MessageId == dto!.Id);
+
+            Assert.Fail(
+                $"El mensaje no llegó a Sent. status={actual?.Status.ToString() ?? "(sin fila)"} "
+                + $"errorCode={actual?.ErrorCode ?? "(ninguno)"} mediaKey={actual?.MediaKey ?? "(ninguna)"} | "
+                + $"job: status={job?.Status.ToString() ?? "(sin fila)"} attempts={job?.Attempts} "
+                + $"lastError={job?.LastError ?? "(ninguno)"}");
+        }
 
         Assert.Contains(_fixture.WhatsAppApi.SentMessages, m => m.Body == "mira esto");
     }

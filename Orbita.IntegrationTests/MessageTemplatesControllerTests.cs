@@ -66,11 +66,8 @@ public sealed class MessageTemplatesControllerTests : IClassFixture<TenantsApiFi
         Assert.Contains(list!, t => t.MetaTemplateName == "greeting" && t.Status == TemplateStatus.Approved);
     }
 
-    private static async Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
-    {
-        var request = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var response = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, request);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
-    }
+    private Task<ChannelAccountDto> ConnectAsync(HttpClient client, Guid tenantId, CookieJar cookies)
+        // Connect *and* verify: without the handshake the account stays
+        // PendingVerification and every send is refused. See the helper.
+        => TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 }

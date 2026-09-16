@@ -238,6 +238,8 @@ public static class DependencyInjection
         services.AddScoped<IKnowledgeChunkRepository, KnowledgeChunkRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
         services.AddScoped<ITenantModelPreferenceRepository, TenantModelPreferenceRepository>();
+        services.AddScoped<IRoutingRuleRepository, RoutingRuleRepository>();
+        services.AddScoped<IAgentAnswerCacheRepository, AgentAnswerCacheRepository>();
         services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
 
         services.AddSingleton<ITextExtractor, PlainTextExtractor>();

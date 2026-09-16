@@ -6,6 +6,66 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-16** — **Épica C2 completa: `ORB-C04`, `C05`, `C06`, `C08`, `C09` y `C12` implementadas, probadas y verificadas con los modelos reales contra Neon.** La suite entera está en verde: **573 unitarias + 263 de integración, cero fallos**, y `dotnet format --verify-no-changes` limpio.
+
+Lo que quedó funcionando de punta a punta (webhook firmado → cola → worker → outbox → asistente → cola de salida), comprobado contra Neon con OpenRouter de verdad:
+
+- **C04** — el asistente responde en español, apoyado en los documentos indexados, y la conversación queda con su `ai_agent_id`.
+- **C06** — un tema bloqueado responde la frase del dueño como mensaje de sistema, sin gastar una llamada al modelo, y deja `agent.reply_blocked` en el outbox con el motivo y el tema.
+- **C08** — una regla por palabra clave sin agente deja la conversación para el equipo: el asistente no contesta.
+- **C05** — el asistente registró una oportunidad real con `crear_oportunidad` (`tools_called: ['crear_oportunidad']` en `ai_runs`, auditada con `actor_type = AiAgent`) y siguió contestando en la misma respuesta.
+- **C12** — la misma pregunta de un segundo cliente se respondió **desde la caché, sin llamar al modelo**: USD 0.000169 la primera vez, ~USD 0.0000003 la segunda.
+
+Gasto real de OpenRouter hasta ahora: **USD 0.0011 de los 5 de saldo** (`total_usage` de la API). Las filas caras de `ai_runs` son del seed, no de gasto real.
+
+Las tres migraciones que faltaban (`AddAiRunToolsAndChunks`, `AddRoutingRulesAndBusinessHours`, `AddSemanticAnswerCache`) ya están aplicadas en Neon.
+
+Lo que sigue sin existir, a propósito: `ORB-C07` (traspaso a humano) depende de `ORB-B15`; `agendar_cita` y `escalar_a_humano` siguen no disponibles porque no hay agenda ni cola humana detrás; la condición "etiqueta" del enrutador no existe porque no hay tabla de etiquetas; y `ORB-A13` (medición de consumo) es quien debe leer `ai_runs`.
+
+### Antes de esto
+
+
+**2026-09-15 (5)** — **La suite de integración corrió entera por primera vez y está en verde: 512 unitarias + 248 de integración, cero fallos.** Antes de esto nunca se había ejecutado completa (la máquina donde se escribió no tenía Docker), y al correrla aparecieron 21 fallos: 16 ya estaban en `develop`.
+
+Detrás de esos 21 había **ocho bugs reales**, no pruebas mal escritas. Siete de producción:
+
+1. **Ningún envío funcionaba**: `OutboundMessageService` leía `conversations` fuera de scope de tenant → 404 sobre conversaciones existentes.
+2. **El segundo mensaje de cada cliente rompía la ingesta**: `InboundMessageProcessor` igual → contacto duplicado, `ix_contacts_tenant_phone` violado, evento muerto.
+3. **Borrar un asistente daba 500** (FK `RESTRICT` de `ai_runs` sin manejar).
+4. **`MessageTemplateService` devolvía lista vacía siempre**, no detectaba duplicados, y `SyncFromMetaAsync` **duplicaba el catálogo entero en cada corrida**.
+5. **`OutboundMessageDispatchService` moría con `MessageNotFound` en cada intento**: el mensaje se encolaba (202, visible en la bandeja) y nunca salía.
+6. **`MediaService` devolvía 404** en cada URL de subida.
+7. **Cada evento del outbox esperaba 30 segundos antes de su primer intento** — la fórmula de retroceso se aplicaba también al intento inicial (`power(2, 0) = 1`). Medido contra la base real: `message.received` tardaba 38 s. Eso anulaba el tick de 500 ms que ORB-B04 eligió a propósito y hacía **aritméticamente imposible** el criterio de ORB-C04 ("latencia percibida por debajo de 6 s en el p95"), que estaba dado por cumplido sin haberse medido.
+
+Los seis primeros son la misma falla: leer una tabla con RLS fuera de una transacción que fije `app.tenant_id`. Ver CLAUDE.md, "Reads of RLS'd tables must run inside a tenant scope".
+
+Y uno de pruebas que era de nuestro track: **el fixture hacía `RemoveAll<IHostedService>()`** para quitar el indexador de conocimiento (ORB-C02) y de paso borraba **todos** los workers de Track B. Más un octavo: `PipelinesControllerTests` construía su `DbContext` sin `UseVector()`, así que EF no podía armar el modelo.
+
+**Las aserciones tampoco veían lo que el worker escribía**: leían tablas con RLS desde un scope sin tenant. Nuevo `TenantsApiFixture.CreateOwnerDbContext()` para eso, y `TestRequests.ConnectVerifiedWhatsAppAsync()` porque conectar un canal sin completar el handshake de Meta deja la cuenta en `PendingVerification` y todo envío responde 409.
+
+**Lo más importante para no repetir:** una prueba que afirma *ausencia* **pasa** con este bug en vez de fallar. `Results_never_cross_tenants` habría certificado aislamiento entre tenants con la búsqueda completamente rota, porque `Assert.All` sobre colección vacía pasa — y estaba listada en el checklist como logro de ORB-C03. Las tres pruebas de aislamiento de Track C llevan ahora **control positivo antes del negativo**. Lo detectó la sesión del frontend, no nosotros.
+
+Hueco conocido que sigue abierto: no hay cobertura de un reintento manual exitoso (`POST .../messages/{id}/retry` → `Sent`), porque llegar a `Failed` con un error transitorio exige agotar cinco intentos con retroceso de 30 s, 60 s, 120 s. Forzarlo reescribiendo `next_attempt_at` choca con el lock de fila del worker (probado: once minutos y falló igual). Lo que lo destraba es el `MutableTimeProvider` en el host de pruebas — el mismo que ORB-B06 y ORB-B07 anotaron como faltante; ya existe en `Orbita.UnitTests/TestSupport`.
+
+**2026-09-15 (4)** — `fix/agent-delete-with-history`, encima de C04. Borrar un asistente que ya había corrido devolvía **500** (violación de la FK `RESTRICT` de `ai_runs`); ahora devuelve **409** con mensaje en español. Lo destapó la sesión del frontend preguntando qué le pasa a `conversations.ai_agent_id` cuando alguien usa el botón Eliminar de la pantalla 2.5, que ya está construido de su lado. Ver CLAUDE.md, "Borrar un asistente que ya trabajó".
+
+**2026-09-15 (2)** — **Dos bugs serios de Row Level Security, arreglados en `fix/outbound-reads-under-rls`.** Los encontró la primera corrida real contra una base con RLS aplicando de verdad; las pruebas de integración que debían haberlos detectado existían desde B03 y B05, pero nunca se habían ejecutado (sin Docker en aquella máquina).
+
+- **Ningún envío funcionaba.** `OutboundMessageService` leía `conversations` fuera de un scope de tenant, así que todo `POST .../conversations/{id}/messages` devolvía 404 sobre una conversación existente.
+- **El segundo mensaje de cada cliente rompía la ingesta.** `InboundMessageProcessor` leía `contacts`/`conversations`/`messages` igual, así que la búsqueda de contacto siempre fallaba: creaba un contacto duplicado, violaba `ix_contacts_tenant_phone` y el evento de webhook quedaba muerto. El chequeo de idempotencia por `external_id` estaba inerte por lo mismo.
+
+Hay un miembro nuevo en `IUnitOfWork`, `ExecuteAndSaveInTenantScopeAsync`, para el caso "leer y escribir en la misma transacción con el mismo `app.tenant_id`". Ver CLAUDE.md, sección "Reads of RLS'd tables must run inside a tenant scope". **Ojo al mergear**: agregar un miembro a `IUnitOfWork` rompe toda implementación a mano de la interfaz y git no lo marca como conflicto.
+**2026-09-15 (3)** — `ORB-C04` (el agente responde) en `feature/c04-agent-responds`, la punta del stack (`fix/embedding-model-pricing` → `fix/outbound-reads-under-rls` → esta). Con esto arranca la Épica C2 de Track C, que estaba bloqueada por `ORB-B03` hasta que Track B entró a `develop`.
+
+El asistente se engancha al evento `message.received` del outbox, no a `InboundMessageProcessor`: `AgentReplyIntegrationHandler` es la primera implementación de `IIntegrationEventHandler` en todo el repo — el seam que construyó B04 estaba vacío. Ver CLAUDE.md, sección "El agente responde (ORB-C04)", para las decisiones que no conviene reabrir.
+
+Dos cosas que había que arreglar para que esto funcionara y que no eran evidentes en el plan:
+
+- **`conversations.ai_agent_id` no lo escribía nadie.** La columna existe desde B03 pero ninguna clase la llenaba, así que un agente nunca habría respondido. Ahora `Conversation.AssignAgent` la fija la primera vez que un asistente contesta, y no reasigna nunca (eso es C08).
+- **`openai/text-embedding-3-small` no tenía precio configurado**, así que cada indexación y cada búsqueda se registraban en `ai_runs.cost_usd` como gratis. Va arreglado en la rama de abajo del stack, con una prueba que recorre la configuración que se despacha y falla si algún modelo asignado a una tarea no tiene precio.
+
+Se agregaron dos ayudas de prueba que varias historias venían pidiendo por escrito: `MutableTimeProvider` (el que faltaba para probar expiraciones — B06 y B07 lo dejaron anotado) y `PassThroughUnitOfWork` en `Orbita.UnitTests/TestSupport`.
+
 **2026-09-15** — Hay **base de desarrollo/integración administrada** (Neon, PostgreSQL 18) con las 24 migraciones aplicadas y datos de ejemplo cargados. No reemplaza a Docker: las pruebas de integración siguen levantando su propio Postgres con Testcontainers, esto es para correr la API y para que el frontend tenga contra qué trabajar.
 
 Lo que hay que saber antes de apuntar cualquier otra base administrada a este repo:
@@ -101,10 +161,13 @@ Track C (Agentes de IA — foco actual):
 - [x] `ORB-C10` Constructor de agentes — solo el backend; las pantallas 2.5–2.8 son del frontend
 - [x] `ORB-C11` Banco de pruebas — las trazas de 4 de las 5 herramientas esperan a `ORB-D05`/`ORB-B03`
 - [x] `ORB-C13` Selección de modelo por tarea
-- [ ] `ORB-C12` Caché semántico — desbloqueada, sin empezar
-- [ ] `ORB-C04` El agente responde — necesita `ORB-B03` (mensajes, Track B)
-- [ ] `ORB-C05` El agente ejecuta acciones — necesita `ORB-D05` (oportunidades, Track D)
-- [ ] `ORB-C06` Guardrails · `ORB-C07` Traspaso a humano · `ORB-C08` Enrutador · `ORB-C09` Consumo de IA — encadenadas detrás de C04
+- [x] `ORB-C12` Caché semántico — apagada por defecto; se enciende con un umbral por asistente
+- [x] `ORB-C04` El agente responde — verificado con modelos reales contra Neon
+- [x] `ORB-C05` El agente ejecuta acciones — `crear_oportunidad` y `mover_etapa`; `agendar_cita`/`escalar_a_humano` siguen no disponibles
+- [x] `ORB-C06` Guardrails — temas bloqueados, límite de respuestas por ventana, bucles, y revisión de la respuesta
+- [x] `ORB-C08` Enrutador — reglas ordenadas por tenant y horario de atención por asistente
+- [x] `ORB-C09` Consumo de IA — `tools_called` y `retrieved_chunk_ids` en `ai_runs`; la facturación es `ORB-A13`, que no existe
+- [ ] `ORB-C07` Traspaso a humano — **bloqueada por `ORB-B15`** (asignación a personas): sin cola humana, prometerle un traspaso al cliente sería mentirle
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
@@ -150,4 +213,6 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-B02`: `feature/webhook-ingestion` está apilada sobre `feature/whatsapp-channel-connect`, no sobre `develop`.** Antes de abrir su propio PR hay que mergear B01 a `develop` primero y luego rebasar esta rama — si se abre el PR tal cual, arrastra los 6 commits de B01. Mismo problema de Docker que B01 para `WhatsAppWebhooksControllerTests`. El test de carga/concurrencia del plan original no se escribió (ver CLAUDE.md).
 - **`ORB-B03` mergeó `feature/d02-contactos` en vez de esperar que llegue a `develop`** (decisión del usuario, ver arriba). El `Contact` de Track D sigue usando sus propios nombres de columna (`phone`, `instagram_username`), que NO coinciden con el DBML (`phone_e164`, `ig_user_id`) — deuda de reconciliación sin resolver, documentada pero no arreglada. `Contact.InstagramUserId`/`ig_user_id` (añadido en B03) sí sigue el nombre del DBML. `NormalizePhone` ya canoniza a solo dígitos (sin `+`) para calzar con el `wa_id` de Meta.
 - **`ORB-B03`: `TenantIsolationTests` no se extendió** para conversations/messages (el mecanismo de RLS ya está probado por otras tablas). Falta un test determinístico de fallo repetido del worker (`WorkerFailure_ThreeTimes_MarksDead` del plan original) — `InboundMessageFlowTests` usa polling con `Eventually` en vez de un adapter fake inyectado por `WithWebHostBuilder`.
-- **B01-B08 completos, pero sin verificación real de extremo a extremo**: sin app de Meta real (ver arriba) ni Docker en esta máquina, todo el flujo (conectar → recibir → responder → estado de entrega → reintento) solo está probado con los fakes de `Orbita.IntegrationTests` (compilan, no corren) y con las unitarias. Antes de mergear a `develop` hay que: (1) crear la app de Meta y configurar `Channels:Meta:*`, (2) tener Postgres disponible (local o Docker) y correr `dotnet ef database update` + `dotnet test Orbita.slnx` completo, (3) probar el flujo real con Yaak/Scalar.
+- **B01-B08 y la épica C2 ya corrieron de verdad**: la suite completa está en verde contra Postgres real (Testcontainers) y el flujo entrante→respuesta se verificó contra Neon con los modelos reales. Lo que sigue sin probarse contra Meta de verdad es el envío saliente: **no hay app de Meta**, así que `WhatsAppCloudApiClient` nunca ha hablado con Graph API — los mensajes salen encolados y el despachador falla contra el fake. Crear la app de Meta sigue siendo el plazo externo más largo.
+- **`ORB-C12`: no hay limpieza de `agent_answer_cache`.** Una entrada cuya huella ya no coincide no se devuelve nunca más, pero tampoco se borra: es peso muerto, no un riesgo de corrección. Hace falta un job de retención antes de volumen real, igual que para `outbox_events`.
+- **La latencia p95 de `ORB-C04` (menos de 6 segundos) sigue sin medirse.** `ai_runs.latency_ms` es donde está el dato; en las corridas reales las llamadas de generación fueron de 2 a 5 segundos, pero nadie lo está midiendo de forma continua.

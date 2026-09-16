@@ -40,7 +40,8 @@ public sealed record AiAgentDto(
     bool HasUnpublishedChanges,
     AiAgentDraftDto? Draft,
     int ConversationCount,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    AgentGuardrailsDto Guardrails)
 {
     public static AiAgentDto From(AiAgent agent, AiAgentDraft? draft = null, int conversationCount = 0)
     {
@@ -60,9 +61,19 @@ public sealed record AiAgentDto(
             pending is not null,
             pending is null ? null : AiAgentDraftDto.From(pending),
             conversationCount,
-            agent.CreatedAt);
+            agent.CreatedAt,
+            new AgentGuardrailsDto(agent.BlockedTopics, agent.OutOfScopeReply));
     }
 }
+
+/// <summary>
+/// ORB-C06's "de qué prefieres que no hable" section. Never part of the draft: it takes
+/// effect the moment it is saved, like <c>PATCH .../enabled</c>. A setting whose purpose
+/// is to make the assistant stop talking about something cannot wait for someone to
+/// press Publicar — the screen saying "guardado" while the risk keeps running would be
+/// the feature working backwards.
+/// </summary>
+public sealed record AgentGuardrailsDto(IReadOnlyList<string> BlockedTopics, string OutOfScopeReply);
 
 /// <summary>The three sliders on ORB-C10's "Quién es" card.</summary>
 public sealed record AgentStyleDto(

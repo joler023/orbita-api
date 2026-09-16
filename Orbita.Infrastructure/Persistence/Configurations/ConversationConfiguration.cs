@@ -37,5 +37,16 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Contact>().WithMany().HasForeignKey(c => c.ContactId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Domain.Channels.ChannelAccount>().WithMany().HasForeignKey(c => c.ChannelAccountId).OnDelete(DeleteBehavior.Restrict);
+
+        // orbita-schema.dbml declares this one (`Ref: conversations.ai_agent_id >
+        // ai_agents.id`) and it was simply missing, which mattered the moment ORB-C04
+        // started writing the column: nothing stopped an assistant from being deleted out
+        // from under the conversations it had answered, leaving a dangling id and a thread
+        // that cannot say who replied. Restrict rather than SetNull for the same reason
+        // ai_runs uses it — "who answered this" is history, not a nullable convenience.
+        //
+        // AiAgentService.DeleteAsync answers 409 before it ever gets here; this is the
+        // backstop for any other path that assigns an agent, ORB-C08's router included.
+        builder.HasOne<Domain.Ai.AiAgent>().WithMany().HasForeignKey(c => c.AiAgentId).OnDelete(DeleteBehavior.Restrict);
     }
 }

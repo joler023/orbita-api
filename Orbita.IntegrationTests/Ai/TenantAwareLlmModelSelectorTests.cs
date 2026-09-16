@@ -186,6 +186,10 @@ public sealed class TenantAwareLlmModelSelectorTests
             Func<CancellationToken, Task> operation,
             CancellationToken cancellationToken) => operation(cancellationToken);
 
+        public Task ExecuteAndSaveInTenantScopeAsync(
+            Func<CancellationToken, Task> operation,
+            CancellationToken cancellationToken) => operation(cancellationToken);
+
         public Task<TResult> QueryInUserScopeAsync<TResult>(
             Guid userId,
             Func<CancellationToken, Task<TResult>> query,

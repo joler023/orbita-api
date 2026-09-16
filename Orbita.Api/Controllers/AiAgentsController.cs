@@ -105,6 +105,22 @@ public sealed class AiAgentsController(IAiAgentService aiAgents) : ControllerBas
         CancellationToken cancellationToken)
         => Ok(await aiAgents.SetEnabledAsync(tenantId, User.GetUserId(), agentId, request.IsEnabled, cancellationToken));
 
+    /// <summary>
+    /// ORB-C06. Effective immediately, not a draft — see AgentGuardrailsDto for why.
+    /// </summary>
+    [HttpPut("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}/guardrails")]
+    [ProducesResponseType(typeof(AiAgentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AiAgentDto>> SetGuardrails(
+        Guid tenantId,
+        Guid agentId,
+        [FromBody] SetAgentGuardrailsRequest request,
+        CancellationToken cancellationToken)
+        => Ok(await aiAgents.SetGuardrailsAsync(
+            tenantId, User.GetUserId(), agentId, request.BlockedTopics, request.OutOfScopeReply, cancellationToken));
+
     [HttpDelete("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -141,3 +157,7 @@ public sealed record SaveAiAgentBody(
 }
 
 public sealed record SetAgentEnabledRequest(bool IsEnabled);
+
+public sealed record SetAgentGuardrailsRequest(
+    [Required, MaxLength(AiAgent.MaxBlockedTopics)] IReadOnlyList<string> BlockedTopics,
+    [Required, MaxLength(AiAgent.OutOfScopeReplyMaxLength)] string OutOfScopeReply);

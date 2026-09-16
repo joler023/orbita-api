@@ -114,9 +114,19 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
             services.RemoveAll<ILlmProvider>();
             services.AddSingleton<ILlmProvider>(Llm);
 
-            // The background indexer is removed so tests decide when indexing happens.
-            // Left running, it would race every assertion about a document's status.
-            services.RemoveAll<IHostedService>();
+            // The background indexer is removed so tests decide when indexing happens:
+            // left running, it would race every assertion about a document's status.
+            //
+            // Only that one. This used to be `RemoveAll<IHostedService>()`, which also
+            // took out ORB-B03's InboundMessageWorker, ORB-B04's OutboxDispatcherWorker,
+            // ORB-B05's OutboundMessageWorker and ORB-B01's ChannelTokenExpiryWorker —
+            // so every test that waits for a background worker waited for something that
+            // was never going to run, and sixteen of them failed on a timeout that said
+            // nothing about the cause. Nobody saw it because these tests had never been
+            // executed: the machine they were written on had no Docker.
+            services.Remove(services.Single(descriptor =>
+                descriptor.ServiceType == typeof(IHostedService)
+                && descriptor.ImplementationType == typeof(Orbita.Infrastructure.Ai.KnowledgeIndexingHostedService)));
 
             // Uploaded files go to a directory this fixture owns, instead of the shared
             // media root. Same storage implementation as production (ORB-B06's), only
@@ -136,6 +146,38 @@ public sealed class TenantsApiFixture : WebApplicationFactory<Program>, IAsyncLi
     /// TenantIsolationTests.QueryFilter_OnlyReturnsMembershipsForTheAmbientTenant).
     /// </summary>
     public string GetAdminConnectionString() => _postgres.GetConnectionString();
+
+    /// <summary>
+    /// A DbContext connected as the table owner, so Row Level Security does not apply.
+    ///
+    /// This is what a test uses to check that a background worker did its job. Reading
+    /// those tables through the app's own role from a test scope answers *nothing* — not
+    /// an error, zero rows — because `app.tenant_id` is set with SET LOCAL semantics
+    /// inside the transactions the app itself opens, and a test scope has none. Sixteen
+    /// tests failed on exactly that, asserting through a connection that could never see
+    /// what the worker had just written.
+    ///
+    /// Bypassing RLS here proves nothing about isolation and is not meant to:
+    /// <see cref="TenantIsolationTests"/> is where isolation is proven, on purpose,
+    /// through the app's own role.
+    /// </summary>
+    public OrbitaDbContext CreateOwnerDbContext(Guid? tenantId = null)
+    {
+        var options = new DbContextOptionsBuilder<OrbitaDbContext>()
+            // UseVector, like the production registration: without it EF cannot map
+            // knowledge_chunks.embedding and the whole model fails to build.
+            .UseNpgsql(GetAdminConnectionString(), npgsql => npgsql.UseVector())
+            .Options;
+
+        var tenantContext = new AmbientTenantContext();
+
+        if (tenantId is { } id)
+        {
+            tenantContext.SetTenant(id);
+        }
+
+        return new OrbitaDbContext(options, tenantContext);
+    }
 
     /// <summary>The stand-in model provider; tests can script a failure on it.</summary>
     public FakeLlmProvider Llm { get; } = new();

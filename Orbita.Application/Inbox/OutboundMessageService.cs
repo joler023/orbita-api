@@ -36,6 +36,38 @@ public sealed class OutboundMessageService(
         return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
     }
 
+    public async Task<MessageDto> SendAgentReplyAsync(Guid tenantId, Guid conversationId, string text, Guid aiRunId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+        var message = Message.OutboundAgentText(tenantId, conversationId, text, aiRunId, now);
+
+        // isHuman: false — the assistant answering is not the team answering, and
+        // first_response_seconds is a measure of how long a person took to reply.
+        conversation.RegisterOutbound(now, text, isHuman: false);
+
+        return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
+    }
+
+    public async Task<MessageDto> SendSystemReplyAsync(Guid tenantId, Guid conversationId, string text, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: true, cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+
+        // No user and no ai_run: Message.AuthorKind resolves this to System, which is how
+        // the inbox tells it apart from both a person and the assistant.
+        var message = Message.OutboundText(tenantId, conversationId, text, sentByUserId: null, MessageCategory.Service, now);
+        conversation.RegisterOutbound(now, text, isHuman: false);
+
+        return await EnqueueAndSaveAsync(tenantId, conversationId, message, account.Id, cancellationToken);
+    }
+
     public async Task<MessageDto> SendMediaAsync(Guid tenantId, Guid callerUserId, Guid conversationId, SendMediaRequest request, CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
@@ -61,7 +93,9 @@ public sealed class OutboundMessageService(
         // Templates exist specifically to write outside the window — no window check here.
         var (conversation, account) = await RequireSendableConversationAsync(tenantId, conversationId, requireOpenWindow: false, cancellationToken);
 
-        var template = await messageTemplates.GetByIdAsync(request.TemplateId, cancellationToken);
+        var template = await unitOfWork.QueryInTenantScopeAsync(
+            ct => messageTemplates.GetByIdAsync(request.TemplateId, ct),
+            cancellationToken);
         if (template is null || template.TenantId != tenantId)
         {
             throw new TemplateNotFoundException();
@@ -85,7 +119,9 @@ public sealed class OutboundMessageService(
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.SendMessages, cancellationToken);
 
-        var message = await messages.GetByIdAsync(messageId, cancellationToken);
+        var message = await unitOfWork.QueryInTenantScopeAsync(
+            ct => messages.GetByIdAsync(messageId, ct),
+            cancellationToken);
         if (message is null || message.TenantId != tenantId)
         {
             throw new MessageNotFoundException();
@@ -122,14 +158,35 @@ public sealed class OutboundMessageService(
     // conversations is RLS'd/query-filtered on the ambient tenant, so a null result here
     // already means "not found or not yours" — no separate tenant check needed.
     // channel_accounts is not RLS'd (ORB-B01) — the tenant check here is the isolation.
+    //
+    // The read has to run inside QueryInTenantScopeAsync, not as a plain repository call:
+    // `app.tenant_id` is set with SET LOCAL semantics, so outside a transaction that sets
+    // it the RLS policy on `conversations` matches nothing and every send answers 404 on
+    // a conversation that is right there. The EF query filter alone does not show this —
+    // it passes, and then Postgres returns no rows anyway.
+    //
+    // The entities stay tracked by the same DbContext, so RegisterOutbound below still
+    // reaches the later SaveChangesAsync.
     private async Task<(Conversation Conversation, ChannelAccount Account)> RequireSendableConversationAsync(
         Guid tenantId, Guid conversationId, bool requireOpenWindow, CancellationToken cancellationToken)
     {
-        var conversation = await conversations.GetByIdAsync(conversationId, cancellationToken)
-            ?? throw new ConversationNotFoundException();
+        var loaded = await unitOfWork.QueryInTenantScopeAsync(
+            async ct =>
+            {
+                var conversation = await conversations.GetByIdAsync(conversationId, ct);
 
-        var account = await channelAccounts.GetByIdAsync(conversation.ChannelAccountId, cancellationToken);
-        if (account is null || account.TenantId != tenantId || account.Status != ChannelStatus.Connected)
+                return conversation is null
+                    ? (Conversation: (Conversation?)null, Account: (ChannelAccount?)null)
+                    : (Conversation: conversation, Account: await channelAccounts.GetByIdAsync(conversation.ChannelAccountId, ct));
+            },
+            cancellationToken);
+
+        if (loaded.Conversation is not { } conversation)
+        {
+            throw new ConversationNotFoundException();
+        }
+
+        if (loaded.Account is not { } account || account.TenantId != tenantId || account.Status != ChannelStatus.Connected)
         {
             throw new ChannelNotConnectedException();
         }

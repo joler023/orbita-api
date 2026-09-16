@@ -43,8 +43,7 @@ public sealed class MessagesControllerTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             return await dbContext.Messages.AnyAsync(m => m.Id == dto.Id && m.Status == MessageStatus.Sent);
         });
 
@@ -66,13 +65,11 @@ public sealed class MessagesControllerTests : IClassFixture<TenantsApiFixture>
 
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             return await dbContext.Messages.AnyAsync(m => m.Id == dto!.Id && m.Status == MessageStatus.Failed);
         });
 
-        using var verifyScope = _fixture.Services.CreateScope();
-        var db = verifyScope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+        await using var db = _fixture.CreateOwnerDbContext();
         var message = await db.Messages.AsNoTracking().SingleAsync(m => m.Id == dto!.Id);
         Assert.Equal("131047", message.ErrorCode);
     }
@@ -109,10 +106,10 @@ public sealed class MessagesControllerTests : IClassFixture<TenantsApiFixture>
 
     private async Task<(ChannelAccountDto Account, Guid ConversationId)> ConnectAndReceiveInboundAsync(HttpClient client, Guid tenantId, CookieJar cookies)
     {
-        var connectRequest = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var connectResponse = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, connectRequest);
-        connectResponse.EnsureSuccessStatusCode();
-        var account = (await connectResponse.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
+        // Connect *and* verify: a freshly connected account stays
+        // PendingVerification until Meta calls the callback back, and an
+        // unverified account refuses every send.
+        var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         var body = TextMessagePayload(account.ExternalId, "573009998877", externalId, "hola");
@@ -121,8 +118,7 @@ public sealed class MessagesControllerTests : IClassFixture<TenantsApiFixture>
         Guid conversationId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message is null)
             {

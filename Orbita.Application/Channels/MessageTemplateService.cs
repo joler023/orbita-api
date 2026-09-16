@@ -23,7 +23,13 @@ public sealed class MessageTemplateService(
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ViewChannels, cancellationToken);
 
-        var list = await templates.ListByTenantAsync(tenantId, status, cancellationToken);
+        // message_templates is RLS'd, and `app.tenant_id` only exists inside a transaction
+        // that sets it — a plain read here answers zero rows, always. See CLAUDE.md,
+        // "Reads of RLS'd tables must run inside a tenant scope".
+        var list = await unitOfWork.QueryInTenantScopeAsync(
+            ct => templates.ListByTenantAsync(tenantId, status, ct),
+            cancellationToken);
+
         return list.Select(ToSummary).ToList();
     }
 
@@ -33,23 +39,31 @@ public sealed class MessageTemplateService(
 
         var account = await RequireAccountAsync(tenantId, request.ChannelAccountId, cancellationToken);
         var language = string.IsNullOrWhiteSpace(request.Language) ? DefaultLanguage : request.Language;
-
-        if (await templates.FindByNameAsync(account.Id, request.MetaTemplateName, language, cancellationToken) is not null)
-        {
-            throw new TemplateAlreadyExistsException();
-        }
-
         var now = timeProvider.GetUtcNow();
-        var template = MessageTemplate.Create(tenantId, account.Id, request.MetaTemplateName, request.Category, request.Language, request.Body, now);
-        await templates.AddAsync(template, cancellationToken);
+        MessageTemplate? template = null;
 
-        await auditLogger.RecordAsync(
-            tenantId, callerUserId, "template.created", nameof(MessageTemplate), template.Id,
-            new { metaTemplateName = template.MetaTemplateName, language = template.Language },
+        // The duplicate check and the insert share one transaction: outside a tenant
+        // scope the lookup finds nothing even when the template exists, and the "already
+        // exists" conflict would never be raised.
+        await unitOfWork.ExecuteAndSaveInTenantScopeAsync(
+            async ct =>
+            {
+                if (await templates.FindByNameAsync(account.Id, request.MetaTemplateName, language, ct) is not null)
+                {
+                    throw new TemplateAlreadyExistsException();
+                }
+
+                template = MessageTemplate.Create(tenantId, account.Id, request.MetaTemplateName, request.Category, request.Language, request.Body, now);
+                await templates.AddAsync(template, ct);
+
+                await auditLogger.RecordAsync(
+                    tenantId, callerUserId, "template.created", nameof(MessageTemplate), template.Id,
+                    new { metaTemplateName = template.MetaTemplateName, language = template.Language },
+                    ct);
+            },
             cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return ToSummary(template);
+        return ToSummary(template!);
     }
 
     public async Task<int> SyncFromMetaAsync(Guid tenantId, Guid callerUserId, Guid channelAccountId, CancellationToken cancellationToken)
@@ -63,26 +77,34 @@ public sealed class MessageTemplateService(
 
         var now = timeProvider.GetUtcNow();
         var syncedCount = 0;
-        foreach (var remote in remoteTemplates)
-        {
-            var local = await templates.FindByNameAsync(account.Id, remote.Name, remote.Language, cancellationToken);
-            if (local is null)
+
+        // One scope for the whole sync: each lookup decides whether a template is created
+        // or updated, so a read that cannot see existing rows would duplicate every one of
+        // them on every sync.
+        await unitOfWork.ExecuteAndSaveInTenantScopeAsync(
+            async ct =>
             {
-                // Body isn't part of Meta's template list response in a form we can
-                // render locally yet — placeholder until a template detail call is added.
-                local = MessageTemplate.Create(tenantId, account.Id, remote.Name, MessageCategory.Utility, remote.Language, "[sincronizado desde Meta]", now);
-                await templates.AddAsync(local, cancellationToken);
-            }
+                foreach (var remote in remoteTemplates)
+                {
+                    var local = await templates.FindByNameAsync(account.Id, remote.Name, remote.Language, ct);
+                    if (local is null)
+                    {
+                        // Body isn't part of Meta's template list response in a form we can
+                        // render locally yet — placeholder until a template detail call is added.
+                        local = MessageTemplate.Create(tenantId, account.Id, remote.Name, MessageCategory.Utility, remote.Language, "[sincronizado desde Meta]", now);
+                        await templates.AddAsync(local, ct);
+                    }
 
-            local.ApplyMetaStatus(MetaTemplateStatusMapper.Map(remote.Status), remote.RejectedReason, now);
-            syncedCount++;
-        }
+                    local.ApplyMetaStatus(MetaTemplateStatusMapper.Map(remote.Status), remote.RejectedReason, now);
+                    syncedCount++;
+                }
 
-        await auditLogger.RecordAsync(
-            tenantId, callerUserId, "template.synced", nameof(MessageTemplate), null,
-            new { channelAccountId = account.Id, count = syncedCount },
+                await auditLogger.RecordAsync(
+                    tenantId, callerUserId, "template.synced", nameof(MessageTemplate), null,
+                    new { channelAccountId = account.Id, count = syncedCount },
+                    ct);
+            },
             cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return syncedCount;
     }

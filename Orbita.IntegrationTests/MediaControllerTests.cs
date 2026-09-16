@@ -40,7 +40,20 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
         var putResponse = await client.PutAsync(uploadUrl!.UploadUrl, new ByteArrayContent(bytes));
         Assert.Equal(HttpStatusCode.NoContent, putResponse.StatusCode);
 
-        var getResponse = await client.GetAsync(uploadUrl.UploadUrl);
+        // The upload token grants upload and nothing else. This used to reuse it for the
+        // GET and expect 200, which would have meant a presigned *upload* URL also handed
+        // out read access to the object it writes — the opposite of what the operation is
+        // baked into the token for.
+        var readWithTheUploadToken = await client.GetAsync(uploadUrl.UploadUrl);
+        Assert.Equal(HttpStatusCode.Forbidden, readWithTheUploadToken.StatusCode);
+
+        // Reading needs a token issued for reading, which is what the inbox asks for when
+        // it renders a message's media.
+        using var scope = _fixture.Services.CreateScope();
+        var signer = scope.ServiceProvider.GetRequiredService<IMediaUrlSigner>();
+        var readToken = signer.CreateToken("get", uploadUrl.Key, DateTimeOffset.UtcNow.AddMinutes(5));
+
+        var getResponse = await client.GetAsync($"/api/media/{readToken}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         Assert.Equal(bytes, await getResponse.Content.ReadAsByteArrayAsync());
     }
@@ -72,10 +85,10 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
 
     private async Task<Guid> ConnectAndReceiveInboundAsync(HttpClient client, Guid tenantId, CookieJar cookies)
     {
-        var connectRequest = new ConnectWhatsAppRequest($"code-{Guid.NewGuid():N}", $"waba-{Guid.NewGuid():N}", $"phone-{Guid.NewGuid():N}");
-        var connectResponse = await TestRequests.SendAsync(client, HttpMethod.Post, $"/api/tenants/{tenantId}/channels/whatsapp", cookies, connectRequest);
-        connectResponse.EnsureSuccessStatusCode();
-        var account = (await connectResponse.Content.ReadFromJsonAsync<ChannelAccountDto>(TestRequests.JsonOptions))!;
+        // Connect *and* verify: a freshly connected account stays
+        // PendingVerification until Meta calls the callback back, and an
+        // unverified account refuses every send.
+        var account = await TestRequests.ConnectVerifiedWhatsAppAsync(_fixture, client, tenantId, cookies);
 
         var externalId = $"wamid.{Guid.NewGuid():N}";
         var body = TextMessagePayload(account.ExternalId, "573009998877", externalId, "hola");
@@ -84,8 +97,7 @@ public sealed class MediaControllerTests : IClassFixture<TenantsApiFixture>
         Guid conversationId = default;
         await Eventually.AssertAsync(async () =>
         {
-            using var scope = _fixture.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrbitaDbContext>();
+            await using var dbContext = _fixture.CreateOwnerDbContext();
             var message = await dbContext.Messages.AsNoTracking().SingleOrDefaultAsync(m => m.ExternalId == externalId);
             if (message is null)
             {

@@ -211,7 +211,7 @@ public sealed class AiAgentTests
         var agent = NewAgent();
 
         var failure = Assert.Throws<ArgumentException>(
-            () => agent.EnableTools([AiToolCatalog.CrearOportunidad]));
+            () => agent.EnableTools([AiToolCatalog.AgendarCita]));
 
         Assert.Contains("not available", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(agent.Tools);
@@ -282,13 +282,16 @@ public sealed class AiToolCatalogTests
     }
 
     [Fact]
-    public void Only_the_knowledge_lookup_works_today()
+    public void Availability_matches_what_actually_exists()
     {
-        // The rest depend on modules that do not exist. Saying so is the point of the
-        // endpoint — the alternative is a frontend that hardcodes the list and needs a
-        // release every time one lands.
+        // The catalog says what works so the frontend does not hardcode it. Since ORB-C05
+        // the two opportunity tools run; scheduling has no agenda module to write to, and
+        // a handoff has no human queue (ORB-C07/B15) — offering either would be a lie.
         Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.ConsultarConocimiento));
-        Assert.False(AiToolCatalog.IsAvailable(AiToolCatalog.CrearOportunidad));
+        Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.CrearOportunidad));
+        Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.MoverEtapa));
+        Assert.False(AiToolCatalog.IsAvailable(AiToolCatalog.AgendarCita));
+        Assert.False(AiToolCatalog.IsAvailable(AiToolCatalog.EscalarAHumano));
     }
 
     [Fact]

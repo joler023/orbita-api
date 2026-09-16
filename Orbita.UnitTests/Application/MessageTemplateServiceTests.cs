@@ -21,7 +21,7 @@ public sealed class MessageTemplateServiceTests
     private readonly Mock<IWhatsAppCloudApiClient> _whatsAppClient = new();
     private readonly Mock<ITenantAuthorizationService> _authorization = new();
     private readonly Mock<IAuditLogger> _auditLogger = new();
-    private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly MessageTemplateService _sut;
     private readonly ChannelAccount _account;
 
@@ -33,7 +33,7 @@ public sealed class MessageTemplateServiceTests
 
         _sut = new MessageTemplateService(
             _templates.Object, _channelAccounts.Object, _credentialStore.Object, _whatsAppClient.Object,
-            _authorization.Object, _auditLogger.Object, _unitOfWork.Object, new FixedTimeProvider(Now));
+            _authorization.Object, _auditLogger.Object, _unitOfWork, new FixedTimeProvider(Now));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class MessageTemplateServiceTests
         Assert.Equal("greeting", result.MetaTemplateName);
         Assert.Equal(TemplateStatus.Draft, result.Status);
         _templates.Verify(t => t.AddAsync(It.IsAny<MessageTemplate>(), It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.TenantScopedSaveCount);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class MessageTemplateServiceTests
 
         Assert.Equal(2, count);
         _templates.Verify(t => t.AddAsync(It.IsAny<MessageTemplate>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.TenantScopedSaveCount);
     }
 
     [Fact]

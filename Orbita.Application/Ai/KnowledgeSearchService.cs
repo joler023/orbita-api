@@ -26,6 +26,30 @@ public sealed class KnowledgeSearchService(
         CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
+
+        return await RunAsync(tenantId, agentId, query, limit, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<KnowledgeSearchHit>> SearchForAgentAsync(
+        Guid tenantId,
+        Guid agentId,
+        string query,
+        int limit,
+        CancellationToken cancellationToken)
+        => RunAsync(tenantId, agentId, query, limit, cancellationToken);
+
+    /// <summary>
+    /// The search itself, with authorization left to the two entry points above. Tenant
+    /// scoping is not part of that split — it is enforced here, on every path, by the
+    /// RLS-scoped reads below.
+    /// </summary>
+    private async Task<IReadOnlyList<KnowledgeSearchHit>> RunAsync(
+        Guid tenantId,
+        Guid agentId,
+        string query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
 
         var agent = await unitOfWork.QueryInTenantScopeAsync(

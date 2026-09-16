@@ -213,6 +213,133 @@ The transactional-outbox pattern: `IOutboxWriter.StageAsync` only adds an `Outbo
 - **Route has no `conversationId`.** `POST /api/tenants/{tenantId}/messages/{messageId}/retry` mirrors the existing `GET .../messages/{messageId}/media-url` shape (ORB-B06) rather than nesting under `/conversations/{conversationId}/messages/...` like the three send endpoints — a retry only ever needs the message id, and the conversation is resolved from it.
 - **Known gap:** the new `MessageStatusTests` (status webhook round-trip, transient retry succeeding, permanent-error retry returning 409) are integration tests and can't run without Docker on this machine (`Orbita.IntegrationTests` needs Testcontainers/`pgvector`) — they compile and are wired the same way every other integration test in this suite is, but are unverified end-to-end until Docker is available.
 
+### Reads of RLS'd tables must run inside a tenant scope
+
+The rule was already stated under domain rule 1, but it was being broken in the two hottest paths in the product, so it is worth stating as its own failure mode: **`SET LOCAL app.tenant_id` dies with its transaction.** A repository call made outside one runs with no tenant set, and an RLS'd table answers "no rows" — not an error, not an empty-ish result you'd notice in a debugger, just nothing.
+
+The EF query filter hides this during development: it passes, the SQL looks right, and Postgres returns zero rows anyway. It also hides it in *any* test that does not run against a database with RLS actually applying — which is why ORB-B03's and ORB-B05's integration tests were written but, never having been executed against a real Postgres, never caught it.
+
+What it looked like in practice:
+
+- `OutboundMessageService.RequireSendableConversationAsync` read `conversations` plainly, so **every** send — human or agent — answered `404 Conversation not found` on a conversation that was right there.
+- `InboundMessageProcessor` read `contacts`, `conversations` and `messages` plainly, so the contact lookup always missed: the *second* message a customer ever sent created a duplicate contact, violated `ix_contacts_tenant_phone`, and dead-lettered the webhook event. The `FindByExternalIdAsync` idempotency check was silently inert for the same reason.
+
+The fix, and the rule for anything new:
+
+- A read that decides something, followed later by a write, goes in `IUnitOfWork.QueryInTenantScopeAsync`.
+- A read whose result the write *depends on having found* goes in **`IUnitOfWork.ExecuteAndSaveInTenantScopeAsync`** (new): one transaction, tenant set once, reads and writes and the save all inside it. Splitting those two across separate scopes is what produced the duplicate contact.
+- `ExecuteInTenantScopeAsync` remains for bulk operations that save themselves (`ExecuteUpdate`/`ExecuteDelete`).
+
+`IUnitOfWork` gaining a member breaks every hand-written implementation of it in the test projects, and git does not mark that as a conflict — `Orbita.UnitTests/TestSupport/PassThroughUnitOfWork` is now the one shared implementation, so there is a single place to update.
+### Borrar un asistente que ya trabajó (corrección de ORB-C10)
+
+`DELETE /api/tenants/{tenantId}/ai-agents/{agentId}` devolvía **500** para cualquier asistente que hubiera corrido alguna vez: `ai_runs.agent_id` es `RESTRICT`, así que el borrado llegaba a Postgres y volvía como violación de clave foránea sin manejar. Alcanzaba con que el asistente hubiera indexado un documento (ORB-C02 registra un run por llamada de embedding), no hacía falta que respondiera nada.
+
+La FK es `RESTRICT` a propósito y no se cambia: `ai_runs` es el libro de consumo del que salen la medición de ORB-A13 y la facturación de ORB-A12, así que la historia de un asistente le sobrevive.
+
+Ahora `AiAgentService.DeleteAsync` pregunta primero (`IAiRunRepository.ExistsForAgentAsync`) y lanza `AgentHasHistoryException` → **409**, con un mensaje en español que el dashboard puede mostrar tal cual. Borrar sigue disponible para el caso que de verdad sirve —un asistente creado por error, que nunca atendió a nadie—; para todo lo demás ORB-C10 ya tenía el verbo correcto, `PATCH .../enabled`.
+
+`conversations.ai_agent_id` **ahora sí tiene clave foránea** (`AddConversationAgentForeignKey`, `RESTRICT`). El DBML la declaraba desde siempre (`Ref: conversations.ai_agent_id > ai_agents.id`) y faltaba en el modelo de EF; hasta ORB-C04 daba igual, porque nadie escribía esa columna. La guarda de 409 y la clave foránea dicen lo mismo a propósito: la primera da un error que se puede mostrar, la segunda lo hace cumplir para cualquier otro camino que asigne un asistente a una conversación —el enrutador de ORB-C08, cuando exista— sin depender de que ese código se acuerde.
+
+**El registro del español importa y se revisa.** Todo texto en español que produce el backend está en tuteo, incluidas las reglas que ORB-C04 le manda al modelo. No es cosmético: un prompt escrito en voseo le enseña al modelo a contestar en voseo, a los clientes de todos los tenants — y Órbita atiende Colombia, México y España, donde tú, vos y usted no son intercambiables. La regla que se le da al modelo es **espejar al cliente**, no elegir un trato por él.
+
+### El agente responde (ORB-C04)
+
+First slice of Track C's Épica C2, and the first thing in this codebase that reacts to an outbox event: `AgentReplyIntegrationHandler` is the first `IIntegrationEventHandler` implementation — the seam ORB-B04 built had been empty until now.
+
+- **The assistant hangs off `message.received`, not off `InboundMessageProcessor`.** That's the rule domain rule 3 already stated ("don't bolt side effects directly onto command handlers"), and here it buys something concrete: ingesting a webhook must be fast (Meta retries anything it doesn't get a prompt 200 for) and answering is slow (a model call, six seconds at p95). Reacting to the committed event puts them on separate clocks, so a model outage delays replies instead of losing messages.
+- **`AgentPromptBuilder` is shared with ORB-C11's test bench, deliberately.** The test bench exists so an owner sees how their assistant will answer *before* a customer does; the moment the two build their prompt differently it stops predicting the product. Both get `AgentPromptBuilder.ConversationRules` — the acceptance criteria (answer in the customer's language, never invent, offer a person when you can't answer) written for the model instead of for us.
+- **`IKnowledgeSearchService` has two entry points.** `SearchAsync` takes a caller and checks `ManageAiAgents`; `SearchForAgentAsync` takes none, because the assistant consulting its own documents has no human caller — the tenant was established by the inbound message, not by a request. Same split, for the same reason, as `IAuditLogger.RecordAsync` vs `RecordSystemActionAsync`: "nobody authorized this" should be something you write down, not something you get by passing null.
+- **`conversations.ai_agent_id` is finally written.** The column has existed since ORB-B03 with nothing filling it. `Conversation.AssignAgent` is idempotent and never reassigns: whichever assistant took the conversation keeps it, because moving a live conversation to a different assistant is ORB-C08's decision, not a side effect of answering. A conversation with none gets `IAiAgentRepository.FindEnabledByTenantAsync` — the tenant's enabled assistant, oldest first when there's more than one, which is a placeholder for C08's routing, not a rule worth defending.
+- **Every reason to stay quiet is a value, not an exception.** `AgentReplyDecision` enumerates them (no assistant, disabled, human assigned, window closed, nothing to answer, not an inbound message, model produced nothing). They're ordinary product states — throwing would fill the dispatcher's log with errors for the most common case. A model or channel failure *does* throw: that one is worth retrying and worth seeing.
+- **`IOutboundMessageService.SendAgentReplyAsync` is how the reply leaves**, not a private copy of the send path: the acceptance criterion is explicit that it goes out "por la cola de salida normal, con su control de tasa", so it inherits ORB-B05's persist-first guarantee, retry policy and per-account rate limit. It takes no caller id and runs no permission check — the sender isn't a person; what stands in for authorization is that the conversation already has this assistant assigned. `Message.OutboundAgentText` enforces the pairing that makes that legible: `sent_by_user_id` null, `ai_run_id` always set.
+- **`IAiRunRecorder.Record` now returns the staged run's id** so the reply can carry it. Like `IAuditLogger`, it still only stages — `SendAgentReplyAsync`'s own `SaveChangesAsync` commits the run, the reply, the queued job and the agent assignment in one transaction. The one exception: a model that answers with nothing still gets its run saved, because the call was made and it cost money.
+- **A message with no text is not answered at all.** An image with no caption, a sticker, a location: replying "no entendí" to every photo a customer sends is worse than letting a person look at it.
+- **Known gaps:** the `HumanIsHandlingIt` guard can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15 — so it's written and unproven. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
+
+### Guardrails (ORB-C06)
+
+`AgentGuardrails` (Domain, pure) decides when the assistant must not answer and when what it produced must not be sent. `AgentConversationResponder` asks it twice: before the model call (`InspectIncoming`: blocked topic, too many replies in the 24h window, a loop) and after (`InspectReply`: empty, longer than WhatsApp's 4096, transcribed its own scaffolding, identical to its previous reply).
+
+- **Blocked topics are not part of the draft.** `PUT /api/tenants/{tenantId}/ai-agents/{agentId}/guardrails` applies immediately, like `PATCH .../enabled`. A setting whose purpose is to make the assistant *stop* talking about something cannot wait for Publicar. `SaveAiAgentBody` does not carry it.
+- **Whole-word matching, not substring**, case- and accent-insensitive. Substring would fire "talla" on "pantalla", "precio" on "apreciamos", "cita" on "felicitaciones" — and the failure is silence, which nobody can diagnose from outside. Accepted cost: "precio" does not catch "precios"; the owner adds the plural. Pinned by `AgentGuardrailsTests` so nobody "fixes" it back.
+- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso", because ORB-C07 does not exist and nobody is notified.
+- **An out-of-scope subject gets that sentence; a loop or an exhausted window gets silence.** The last two mean the assistant already said too much.
+- **Every block stages `agent.reply_blocked`** `{conversationId, agentId, reason, topic}`. `topic` is a *deliberate exception* to the outbox's ids-and-enums rule: it is free text the owner wrote (their configuration, not customer data), and it is the only thing that answers "why did my assistant go quiet?".
+- The out-of-scope reply is sent through `IOutboundMessageService.SendSystemReplyAsync` and lands as `authorKind: "System"` — the first producer of that value.
+- "Ninguna respuesta contiene datos de otro cliente" is not a filter here, deliberately: retrieval is scoped by tenant and agent under RLS, so it is enforced by construction and proven by the isolation tests (which carry a positive control — see HANDOFF).
+- Limits: 50 topics, 120 chars each, trimmed, blanks dropped (an empty topic would match every message), duplicates dropped case-insensitively.
+
+### El agente ejecuta acciones (ORB-C05)
+
+`AgentToolExecutor` is the only place a model's arguments become a change in the CRM. `AgentConversationResponder` offers the agent's enabled tools, runs what the model asks for, sends the results back, and asks again — at most `MaxToolRounds` (3) rounds with tools, then one final call with **no tools offered**, so the customer always gets text and one reply costs at most four model calls.
+
+- **Tools act only on what the conversation fixes, never on ids the model supplies.** `AgentToolContext` carries tenant, agent, contact and conversation; `crear_oportunidad` always uses the tenant's default pipeline and first stage for that contact, `mover_etapa` moves that contact's most recent *open* opportunity (not on a won/lost stage) to a stage **by name**. The model knows the words on the board, not the ids — and an id it supplied would be the one path to another tenant's record. `An_assistant_cannot_create_anything_in_another_tenant` names the victim tenant in the arguments and asserts nothing lands there (with a positive control first).
+- **`IOpportunityService.CreateForAgentAsync` / `MoveContactOpportunityForAgentAsync`** are the agent entry points: no permission check (the actor isn't a person — what authorizes it is the tool being enabled on the agent), audited through `RecordSystemActionAsync` with `actor_type = AiAgent` and the `agentId` in the diff.
+- **A failing tool never breaks the reply.** Bad arguments, a missing stage, or an exception all become `AgentToolResult(Succeeded: false)` with a Spanish sentence the model can relay; internal error text never reaches the model or the customer.
+- **`LlmMessage.AssistantToolCalls` + `tool_calls` on the OpenAI wire** were missing from ORB-C01: the chat format rejects a `tool` message that doesn't answer a `tool_calls` entry in the turn before it, so the second round of any tool loop would have failed against a real provider while passing every fake. Known gap: the Ollama adapter does not echo `tool_calls` yet (it has no configured `BaseUrl` in this deployment).
+- **`AiTool.ResultsIn`** names the module where a tool's result shows up (`"pipeline"` for both opportunity tools, null for retrieval). It exists because the frontend asked to tell "available" from "available, but you cannot see what it did yet" — this answers the half the backend actually knows. Whether a given screen has shipped is the frontend's own fact; hardcoding it here would be wrong the day it does.
+- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
+- Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
+
+### Registro de consumo de IA (ORB-C09, parte que no depende de A13)
+
+`ai_runs` gains two orbita-schema.dbml columns: `tools_called` (jsonb, tool names) and `retrieved_chunk_ids` (uuid[]). One run per model call, so in a tool loop the round that asked for tools carries them and the follow-up round carries none — that is literally what happened, and what billing per action needs. Retrieved fragments are recorded on the first round only: they went into every round's prompt but were retrieved once, and a sum over runs must not double-count them. Existing rows get `[]` / `'{}'`.
+
+**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `was_handoff`, `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — the first needs ORB-C07, the others have no consumer, and this repo does not pre-create columns for features that do not exist.
+
+### Enrutador (ORB-C08)
+
+`RoutingPolicy.Decide` (pure) picks who handles an inbound message; `AgentConversationResponder` asks it before resolving the assistant.
+
+- **Rules** (`routing_rules`, RLS'd, tenant-first index) are an ordered list: `{position, name, channel?, keyword?, agentId?}`. First match by position wins; `agentId` null means "leave it for the team". No match falls back to the tenant's enabled assistant — the pre-routing behaviour, so a tenant that never configures rules sees nothing change. `PUT /api/tenants/{tenantId}/routing/rules` replaces the whole list and **the array order is the evaluation order** ("visible y configurable"). A rule pointing at another tenant's assistant is refused (404); the FK to `ai_agents` is `RESTRICT`.
+- **Not in orbita-schema.dbml**, which has no routing table — an addition like `tenant_model_preferences`. The story also names *etiqueta* as a condition; there is no `tags` table yet, so that condition does not exist rather than existing and never matching.
+- **Sticky**: rules choose who takes a *new* conversation; one that already has an assistant keeps it (ORB-C04's invariant). They never bounce a live exchange between assistants.
+- **Keywords match whole words**, accent- and case-insensitive, via the same `WholeWordText` ORB-C06's blocked topics use.
+- **Rules decide *who*, hours decide *whether that one answers now*** — they are not two switches racing each other, and the frontend was right to ask which wins. `RoutingPolicy.Decide` runs first and picks the assistant (or leaves it for the team); only then are *that* assistant's hours checked. So a rule sending WhatsApp to assistant X at 11pm, with X set to `LeaveForTeam`, leaves the conversation for the team — and the assistant is not assigned to it, so it is not claimed by someone who will never answer. A rule never overrides hours and hours never re-route.
+- **Business hours live on the assistant** (`ai_agents.business_hours`, jsonb, as the DBML specifies; null = always on), evaluated in `tenants.timezone`. `OutsideHours` is `AssistantAnswers` or `LeaveForTeam` — both halves of "fuera de horario puede contestar el agente o dejarse en cola". Checked *before* the assignment, so a message at 2am is not claimed by an assistant that then never answers. Overnight shifts are two slots; a slot that closes before it opens is refused. Unknown time zone → UTC, not a silenced assistant. `PUT .../ai-agents/{agentId}/business-hours`; not part of the draft.
+- Mapped with a value converter, not an owned JSON type: EF binds owned types through constructors it cannot satisfy for a positional record.
+
+### Caché semántica de respuestas (ORB-C12)
+
+`agent_answer_cache` keeps answers an assistant already gave so a near-identical question
+can be answered without a model call. Off by default, through `PUT/GET
+/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache`.
+
+- **The API takes a named level, never the number.** `SemanticCacheLevel` is `Off` |
+  `Conservative` | `Balanced` | `Aggressive`; `SemanticCacheLevels` is the one place each
+  becomes a cosine threshold (0.97 / 0.93 / 0.88), stored in
+  `ai_agents.semantic_cache_threshold`. This is the same call ORB-C10 made for
+  `temperature`, and the frontend was right to push back on the first draft of this
+  endpoint, which exposed the float: "is 0,92 a lot?" has no answer for the owner of a
+  bakery, and guessing wrong costs a customer the answer to a question they did not ask.
+  Retuning a level is a backend change with no frontend release; the way back from a stored
+  number is nearest-match, so retuning never makes an assistant's level unreadable.
+
+- **Only a conversation's first answer is ever stored or reused, and only if no tool ran.**
+  A later turn was shaped by the turns before it — it answers that exchange, not the
+  question — and an answer that created an opportunity would, replayed, claim an action
+  that never happened for the new customer. Both refusals are pinned by tests.
+- **Invalidation is a fingerprint, not a delete.** `AgentAnswerFingerprint.Compute` hashes
+  the assistant's system prompt, temperature, max tokens, tools and blocked topics together
+  with a summary of its documents (`IKnowledgeDocumentRepository.SummarizeForAgentAsync`:
+  count plus the latest `created_at`/`indexed_at`). An entry whose fingerprint no longer
+  matches is simply never returned, so uploading, reindexing or deleting a document — or
+  publishing new instructions — retires every earlier answer without a `DELETE` that would
+  have to run inside the right tenant scope to do anything at all. Stale rows are dead
+  weight, not a correctness risk; there is no cleanup job yet.
+- **The hit rate is read off `ai_runs`, not a counter.** Every lookup embeds the question
+  and records that embedding run with `finish_reason` `cache_hit` or `cache_miss`. A hit's
+  reply carries that run as its `ai_run_id`, so every message still has a run explaining
+  it. `GET .../semantic-cache` returns hits, misses and the rate; null rate means nobody has
+  asked yet, which is not the same as 0%.
+- **The table is RLS'd and tenant-first indexed** like any other assistant-facing table, and
+  the lookup narrows by `(tenant_id, agent_id, fingerprint)` before comparing vectors.
+  `SemanticCacheApiTests` proves one tenant's answers are never offered to another, with a
+  positive control so a cache that never hits cannot pass by doing nothing.
+- **Cost:** a miss pays one embedding on top of the model call (retrieval embeds the same
+  question again — accepted, it is ~USD 0.0000002); a hit pays only that embedding.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.

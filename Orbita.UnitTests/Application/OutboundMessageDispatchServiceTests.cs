@@ -25,7 +25,7 @@ public sealed class OutboundMessageDispatchServiceTests
     private readonly Mock<IOutboundMessageRateLimiter> _rateLimiter = new();
     private readonly Mock<IMediaStorage> _mediaStorage = new();
     private readonly Mock<IOutboxWriter> _outboxWriter = new();
-    private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly OutboundMessageDispatchService _sut;
 
     private readonly Message _message;
@@ -59,7 +59,7 @@ public sealed class OutboundMessageDispatchServiceTests
             _rateLimiter.Object,
             _mediaStorage.Object,
             _outboxWriter.Object,
-            _unitOfWork.Object,
+            _unitOfWork,
             new FixedTimeProvider(Now));
     }
 
@@ -76,7 +76,7 @@ public sealed class OutboundMessageDispatchServiceTests
         Assert.Equal("wamid.123", _message.ExternalId);
         Assert.Equal(OutboundJobStatus.Sent, _job.Status);
         _outboxWriter.Verify(w => w.StageAsync(TenantId, nameof(Message), _message.Id, "message.sent", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(1, _unitOfWork.SaveCount);
     }
 
     [Fact]

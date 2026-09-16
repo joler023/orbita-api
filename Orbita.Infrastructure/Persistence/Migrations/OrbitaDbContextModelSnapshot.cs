@@ -25,11 +25,65 @@ namespace Orbita.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Orbita.Domain.Ai.AgentAnswerCacheEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("answer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector(1536)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("question");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("TenantId", "AgentId", "Fingerprint")
+                        .HasDatabaseName("ix_agent_answer_cache_tenant_agent_fingerprint");
+
+                    b.ToTable("agent_answer_cache", (string)null);
+                });
+
             modelBuilder.Entity("Orbita.Domain.Ai.AiAgent", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("BusinessHours")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("business_hours");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -55,11 +109,22 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
 
+                    b.Property<string>("OutOfScopeReply")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("out_of_scope_reply");
+
                     b.Property<string>("Personality")
                         .IsRequired()
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("personality");
+
+                    b.Property<decimal?>("SemanticCacheThreshold")
+                        .HasPrecision(3, 2)
+                        .HasColumnType("numeric(3,2)")
+                        .HasColumnName("semantic_cache_threshold");
 
                     b.Property<string>("SystemPrompt")
                         .IsRequired()
@@ -74,6 +139,11 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
+
+                    b.PrimitiveCollection<string>("_blockedTopics")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("blocked_topics");
 
                     b.PrimitiveCollection<string>("_tools")
                         .IsRequired()
@@ -233,6 +303,16 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("tokens_out");
 
+                    b.PrimitiveCollection<List<Guid>>("_retrievedChunkIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("retrieved_chunk_ids");
+
+                    b.PrimitiveCollection<string>("_toolsCalled")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("tools_called");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AgentId");
@@ -376,6 +456,54 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("knowledge_indexing_queue", (string)null);
+                });
+
+            modelBuilder.Entity("Orbita.Domain.Ai.RoutingRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("channel");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Keyword")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("keyword");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("TenantId", "Position")
+                        .HasDatabaseName("ix_routing_rules_tenant_position");
+
+                    b.ToTable("routing_rules", (string)null);
                 });
 
             modelBuilder.Entity("Orbita.Domain.Ai.TenantModelPreference", b =>
@@ -1437,6 +1565,8 @@ namespace Orbita.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AiAgentId");
+
                     b.HasIndex("ChannelAccountId");
 
                     b.HasIndex("ContactId");
@@ -1753,6 +1883,21 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("channel_credentials", (string)null);
                 });
 
+            modelBuilder.Entity("Orbita.Domain.Ai.AgentAnswerCacheEntry", b =>
+                {
+                    b.HasOne("Orbita.Domain.Ai.AiAgent", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Orbita.Domain.Ai.AiAgent", b =>
                 {
                     b.HasOne("Orbita.Domain.Tenants.Tenant", null)
@@ -1829,6 +1974,20 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasForeignKey("Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Orbita.Domain.Ai.RoutingRule", b =>
+                {
+                    b.HasOne("Orbita.Domain.Ai.AiAgent", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Orbita.Domain.Tenants.Tenant", null)
                         .WithMany()
@@ -1989,6 +2148,11 @@ namespace Orbita.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Orbita.Domain.Inbox.Conversation", b =>
                 {
+                    b.HasOne("Orbita.Domain.Ai.AiAgent", null)
+                        .WithMany()
+                        .HasForeignKey("AiAgentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Orbita.Domain.Channels.ChannelAccount", null)
                         .WithMany()
                         .HasForeignKey("ChannelAccountId")

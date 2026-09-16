@@ -7,6 +7,11 @@ namespace Orbita.Infrastructure.Persistence.Configurations;
 
 public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
 {
+    private static readonly System.Text.Json.JsonSerializerOptions BusinessHoursJson = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
     public void Configure(EntityTypeBuilder<AiAgent> builder)
     {
         builder.ToTable("ai_agents");
@@ -45,6 +50,37 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
             .HasField("_tools")
             .UsePropertyAccessMode(PropertyAccessMode.Field)
             .IsRequired();
+
+        // ORB-C06. jsonb like tools: a short list of the owner's own words, readable in psql.
+        builder.Property<List<string>>("_blockedTopics")
+            .HasColumnName("blocked_topics")
+            .HasColumnType("jsonb")
+            .HasField("_blockedTopics")
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .IsRequired();
+
+        builder.Property(a => a.OutOfScopeReply)
+            .HasColumnName("out_of_scope_reply")
+            .HasMaxLength(AiAgent.OutOfScopeReplyMaxLength)
+            .IsRequired();
+
+        // ORB-C08: orbita-schema.dbml's ai_agents.business_hours jsonb. Nullable = always on.
+        // A value converter rather than an owned JSON type: BusinessHours is a positional
+        // record, and EF binds owned types through constructors it cannot satisfy for one.
+        // The column stays the jsonb the DBML specifies either way.
+        builder.Property(a => a.BusinessHours)
+            .HasColumnName("business_hours")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                hours => hours == null ? null : System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson),
+                json => string.IsNullOrEmpty(json) ? null : System.Text.Json.JsonSerializer.Deserialize<BusinessHours>(json, BusinessHoursJson),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<BusinessHours?>(
+                    (left, right) => System.Text.Json.JsonSerializer.Serialize(left, BusinessHoursJson) == System.Text.Json.JsonSerializer.Serialize(right, BusinessHoursJson),
+                    hours => System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson).GetHashCode(),
+                    hours => hours == null ? null : System.Text.Json.JsonSerializer.Deserialize<BusinessHours>(System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson), BusinessHoursJson)));
+
+        // ORB-C12. Null = the semantic cache is off.
+        builder.Property(a => a.SemanticCacheThreshold).HasColumnName("semantic_cache_threshold").HasPrecision(3, 2);
 
         builder.Property(a => a.IsEnabled).HasColumnName("is_enabled").IsRequired();
         builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired();

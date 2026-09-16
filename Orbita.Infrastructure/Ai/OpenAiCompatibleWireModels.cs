@@ -51,6 +51,33 @@ internal sealed class OpenAiRequestMessage
     [JsonPropertyName("tool_call_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ToolCallId { get; init; }
+
+    /// <summary>On an assistant turn that asked for tools; see LlmMessage.AssistantToolCalls.</summary>
+    [JsonPropertyName("tool_calls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OpenAiRequestToolCall>? ToolCalls { get; init; }
+}
+
+internal sealed class OpenAiRequestToolCall
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; init; } = "function";
+
+    [JsonPropertyName("function")]
+    public required OpenAiRequestToolCallFunction Function { get; init; }
+}
+
+internal sealed class OpenAiRequestToolCallFunction
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    /// <summary>A JSON string, as the format requires on the way in too.</summary>
+    [JsonPropertyName("arguments")]
+    public required string Arguments { get; init; }
 }
 
 internal sealed class OpenAiTool

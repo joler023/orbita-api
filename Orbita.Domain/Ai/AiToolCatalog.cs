@@ -36,18 +36,22 @@ public static class AiToolCatalog
             "Busca la respuesta en los documentos que subiste antes de contestar.",
             IsAvailable: true,
             UnavailableReason: null),
+        // Available since ORB-C05. Both act only on the contact of the conversation the
+        // assistant is in, never on an id the model supplies — see IOpportunityService.
         new(
             CrearOportunidad,
             "Registrar una oportunidad de venta",
             "Crea una oportunidad en el tablero cuando detecta interés de compra.",
-            IsAvailable: false,
-            "Disponible cuando se active el módulo de oportunidades."),
+            IsAvailable: true,
+            UnavailableReason: null,
+            ResultsIn: "pipeline"),
         new(
             MoverEtapa,
             "Mover una oportunidad de etapa",
             "Avanza una oportunidad en el tablero cuando la conversación lo justifica.",
-            IsAvailable: false,
-            "Disponible cuando se active el módulo de oportunidades."),
+            IsAvailable: true,
+            UnavailableReason: null,
+            ResultsIn: "pipeline"),
         new(
             AgendarCita,
             "Agendar una cita",
@@ -78,9 +82,17 @@ public static class AiToolCatalog
 /// <param name="DisplayName">Shown in the configuration screen. Deliberately free of jargon.</param>
 /// <param name="Description">One sentence explaining what the assistant would do, in the owner's language.</param>
 /// <param name="UnavailableReason">Why it cannot be enabled yet. Null when it can.</param>
+/// <param name="ResultsIn">
+/// Which part of the product shows what this tool did, or null when it leaves nothing to
+/// look at. The frontend asked to be able to tell "available" from "available, but you
+/// cannot see the result yet": this answers the half the backend actually knows — where
+/// the result lands — instead of guessing which screens have shipped, which would be wrong
+/// the day one does.
+/// </param>
 public sealed record AiTool(
     string Key,
     string DisplayName,
     string Description,
     bool IsAvailable,
-    string? UnavailableReason);
+    string? UnavailableReason,
+    string? ResultsIn = null);
