@@ -295,15 +295,24 @@ public sealed class ConversationHandoffService(
     }
 
     /// <summary>
-    /// Opaque to callers, like every cursor in this API: milliseconds since the epoch of
-    /// the last row's wait start. Ascending, because the queue is served oldest first.
+    /// Opaque to callers, like every cursor in this API — but ticks rather than the
+    /// milliseconds ORB-C02's document list uses, and the difference is a bug this list
+    /// would otherwise have.
+    ///
+    /// That list pages <em>descending</em> with <c>&lt;</c>, so flooring the timestamp to
+    /// a millisecond excludes the boundary row, which is what you want. This one pages
+    /// <em>ascending</em> with <c>&gt;</c>, where flooring includes it again: the row's
+    /// real microseconds are greater than its own floored cursor, so the last row of a
+    /// page reappeared as the first row of the next one, forever, on a queue of two.
+    /// Postgres stores microseconds, so ticks round-trip exactly.
     /// </summary>
     private static string EncodeCursor(DateTimeOffset requestedAt)
-        => requestedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
+        => requestedAt.UtcTicks.ToString(CultureInfo.InvariantCulture);
 
     private static DateTimeOffset? DecodeCursor(string? cursor)
-        => long.TryParse(cursor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds)
-            ? DateTimeOffset.FromUnixTimeMilliseconds(milliseconds)
+        => long.TryParse(cursor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks)
+            && ticks is >= 0 and <= 3_155_378_975_999_999_999
+            ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : null;
 
     private sealed record HandoffContext(Guid ContactId, string Transcript);
