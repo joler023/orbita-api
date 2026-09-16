@@ -202,6 +202,28 @@ public sealed class Conversation : Entity
     }
 
     /// <summary>
+    /// Adds the note for whoever takes over, after the handoff itself is already committed.
+    ///
+    /// Separate from <see cref="RequestHumanHandoff"/> because writing it costs a model
+    /// call of several seconds, and the customer who asked for a person must not wait for
+    /// a note written for somebody else. Only fills an empty one on a conversation still
+    /// waiting: a note the assistant wrote itself is not overwritten, and a conversation a
+    /// person already gave back does not need one.
+    /// </summary>
+    /// <returns>Whether the note was attached.</returns>
+    public bool AttachHandoffSummary(string summary)
+    {
+        if (!IsWaitingForHuman || HandoffSummary is not null || string.IsNullOrWhiteSpace(summary))
+        {
+            return false;
+        }
+
+        HandoffSummary = Truncate(summary.Trim(), HandoffSummaryMaxLength);
+
+        return true;
+    }
+
+    /// <summary>
     /// Gives the conversation back to the assistant — the "salvo que un humano lo
     /// reactive" half of ORB-C07's last criterion, and the only way out of the queue.
     ///
