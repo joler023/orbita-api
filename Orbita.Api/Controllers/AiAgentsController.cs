@@ -119,7 +119,13 @@ public sealed class AiAgentsController(IAiAgentService aiAgents) : ControllerBas
         [FromBody] SetAgentGuardrailsRequest request,
         CancellationToken cancellationToken)
         => Ok(await aiAgents.SetGuardrailsAsync(
-            tenantId, User.GetUserId(), agentId, request.BlockedTopics, request.OutOfScopeReply, cancellationToken));
+            tenantId,
+            User.GetUserId(),
+            agentId,
+            request.BlockedTopics,
+            request.OutOfScopeReply,
+            request.HandoffReply,
+            cancellationToken));
 
     [HttpDelete("api/tenants/{tenantId:guid}/ai-agents/{agentId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -158,6 +164,12 @@ public sealed record SaveAiAgentBody(
 
 public sealed record SetAgentEnabledRequest(bool IsEnabled);
 
+/// <param name="HandoffReply">
+/// ORB-C07's sentence. Optional on purpose: this endpoint already had a consumer when the
+/// field was added, so a body that predates it keeps whatever is stored instead of
+/// failing to save. Required would have broken the limits screen for a business owner.
+/// </param>
 public sealed record SetAgentGuardrailsRequest(
     [Required, MaxLength(AiAgent.MaxBlockedTopics)] IReadOnlyList<string> BlockedTopics,
-    [Required, MaxLength(AiAgent.OutOfScopeReplyMaxLength)] string OutOfScopeReply);
+    [Required, MaxLength(AiAgent.OutOfScopeReplyMaxLength)] string OutOfScopeReply,
+    [MaxLength(AiAgent.HandoffReplyMaxLength)] string? HandoffReply = null);
