@@ -451,6 +451,11 @@ still B15's.
   conversation back needs `SendMessages`, because handing a customer back to a machine is
   acting on the conversation rather than viewing it. ORB-B12's inbox listing is the other
   reader `ViewInbox` was named for.
+- **`lastMessagePreview` in a queue item is almost always our own handoff sentence**, not
+  the customer's last words, because it is B03's "last message in either direction" and
+  the handoff sentence is sent right after. Found capturing a real item against Neon. Left
+  as is on purpose — the column is B03's and the inbox will rely on that meaning; `summary`
+  is what a queue screen should show. "The customer's last message" would be a new field.
 - **Known gap: "se notifica en vivo" is the outbox event, not a WebSocket push.** The
   frontend confirmed it has no SignalR client at all (no `@microsoft/signalr`, no
   `HubConnection`), and ORB-B14 owns the inbox's realtime story, so a hub here would be
