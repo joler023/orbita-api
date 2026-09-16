@@ -98,8 +98,21 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             {
                 Status = statusCode,
                 Title = title,
-                Detail = exception.Message,
+                Detail = DetailFor(exception),
             },
         });
     }
+
+    /// <summary>
+    /// .NET appends " (Parameter 'name')", in English, to an <see cref="ArgumentException"/>'s
+    /// message whenever a parameter name was given — which is always, in this codebase. The
+    /// Spanish messages the domain writes for the dashboard would otherwise reach it with an
+    /// English developer note glued on. Stripped here, once, rather than by giving up
+    /// <c>nameof</c> everywhere; if the runtime ever localizes the suffix, the match simply
+    /// misses and the message goes out unchanged.
+    /// </summary>
+    internal static string DetailFor(Exception exception)
+        => exception is ArgumentException { ParamName: { } parameter } argument
+            ? argument.Message.Replace($" (Parameter '{parameter}')", string.Empty, StringComparison.Ordinal)
+            : exception.Message;
 }

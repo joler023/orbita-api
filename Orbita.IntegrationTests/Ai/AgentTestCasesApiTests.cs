@@ -126,6 +126,11 @@ public sealed class AgentTestCasesApiTests : IClassFixture<TenantsApiFixture>
             new { name = "Vacío", messages = Array.Empty<object>() });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // The domain writes this sentence for the dashboard. .NET would glue
+        // " (Parameter 'turns')" onto it, in English; the handler strips that.
+        var problem = await response.Content.ReadFromJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>(TestRequests.JsonOptions);
+        Assert.Equal("Un caso de prueba sin mensajes no prueba nada.", problem!.Detail);
     }
 
     [Fact]
