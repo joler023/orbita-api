@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Orbita.Api.Identity;
 using Orbita.Application.Ai;
+using Orbita.Domain.Ai;
 
 namespace Orbita.Api.Controllers;
 
