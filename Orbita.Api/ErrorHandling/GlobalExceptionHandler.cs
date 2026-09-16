@@ -72,6 +72,9 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
             AgentHasHistoryException => (StatusCodes.Status409Conflict, "Assistant has history"),
             CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
+            // The title is the key the dashboard maps its copy by, so renaming it degrades
+            // that copy to the generic error in silence. AgentTestCasesApiTests pins it.
+            TooManyTestCasesException => (StatusCodes.Status409Conflict, "Too many test cases"),
             NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),
             KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
             UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),

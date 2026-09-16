@@ -64,6 +64,38 @@ public sealed class AgentTestCasesApiTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
+    public async Task The_twenty_first_case_is_a_409_the_dashboard_can_explain()
+    {
+        // Covered only by a unit test before, which proved the exception is thrown and
+        // nothing about what HTTP makes of it — and HTTP made a 500 of it, because the
+        // exception was never mapped. The owner would have seen "algo salió mal, inténtalo
+        // de nuevo" for a limit no retry can get past. Same bug the assistant-delete 409 had.
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var agentId = await FirstAgentAsync(client, tenantId, cookies);
+
+        for (var i = 1; i <= AgentTestCase.MaxPerAgent; i++)
+        {
+            var ok = await TestRequests.SendAsync(
+                client, HttpMethod.Post, $"/api/tenants/{tenantId}/ai-agents/{agentId}/test-cases", cookies,
+                new { name = $"Caso {i}", messages = new[] { new { role = "User", content = $"pregunta {i}" } } });
+            Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
+        }
+
+        var refused = await TestRequests.SendAsync(
+            client, HttpMethod.Post, $"/api/tenants/{tenantId}/ai-agents/{agentId}/test-cases", cookies,
+            new { name = "Uno más", messages = new[] { new { role = "User", content = "pregunta 21" } } });
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+
+        // The title is pinned, not just the status: the dashboard maps its copy by title, so
+        // a renamed title would silently degrade that copy to the generic error.
+        var problem = await refused.Content.ReadFromJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>(TestRequests.JsonOptions);
+        Assert.Equal("Too many test cases", problem!.Title);
+        Assert.Contains("Borra alguno para guardar otro", problem.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task One_tenants_saved_cases_are_invisible_to_another()
     {
         var client = TestRequests.CreateClient(_fixture);
