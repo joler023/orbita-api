@@ -298,6 +298,37 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **Business hours live on the assistant** (`ai_agents.business_hours`, jsonb, as the DBML specifies; null = always on), evaluated in `tenants.timezone`. `OutsideHours` is `AssistantAnswers` or `LeaveForTeam` — both halves of "fuera de horario puede contestar el agente o dejarse en cola". Checked *before* the assignment, so a message at 2am is not claimed by an assistant that then never answers. Overnight shifts are two slots; a slot that closes before it opens is refused. Unknown time zone → UTC, not a silenced assistant. `PUT .../ai-agents/{agentId}/business-hours`; not part of the draft.
 - Mapped with a value converter, not an owned JSON type: EF binds owned types through constructors it cannot satisfy for a positional record.
 
+### Caché semántica de respuestas (ORB-C12)
+
+`agent_answer_cache` keeps answers an assistant already gave so a near-identical question
+can be answered without a model call. Off by default: `ai_agents.semantic_cache_threshold`
+is null until an owner sets one (0.80–0.99), through `PUT/GET
+/api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache`.
+
+- **Only a conversation's first answer is ever stored or reused, and only if no tool ran.**
+  A later turn was shaped by the turns before it — it answers that exchange, not the
+  question — and an answer that created an opportunity would, replayed, claim an action
+  that never happened for the new customer. Both refusals are pinned by tests.
+- **Invalidation is a fingerprint, not a delete.** `AgentAnswerFingerprint.Compute` hashes
+  the assistant's system prompt, temperature, max tokens, tools and blocked topics together
+  with a summary of its documents (`IKnowledgeDocumentRepository.SummarizeForAgentAsync`:
+  count plus the latest `created_at`/`indexed_at`). An entry whose fingerprint no longer
+  matches is simply never returned, so uploading, reindexing or deleting a document — or
+  publishing new instructions — retires every earlier answer without a `DELETE` that would
+  have to run inside the right tenant scope to do anything at all. Stale rows are dead
+  weight, not a correctness risk; there is no cleanup job yet.
+- **The hit rate is read off `ai_runs`, not a counter.** Every lookup embeds the question
+  and records that embedding run with `finish_reason` `cache_hit` or `cache_miss`. A hit's
+  reply carries that run as its `ai_run_id`, so every message still has a run explaining
+  it. `GET .../semantic-cache` returns hits, misses and the rate; null rate means nobody has
+  asked yet, which is not the same as 0%.
+- **The table is RLS'd and tenant-first indexed** like any other assistant-facing table, and
+  the lookup narrows by `(tenant_id, agent_id, fingerprint)` before comparing vectors.
+  `SemanticCacheApiTests` proves one tenant's answers are never offered to another, with a
+  positive control so a cache that never hits cannot pass by doing nothing.
+- **Cost:** a miss pays one embedding on top of the model call (retrieval embeds the same
+  question again — accepted, it is ~USD 0.0000002); a hit pays only that embedding.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
