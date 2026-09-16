@@ -82,6 +82,8 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
     public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
 
+    public DbSet<AgentAnswerCacheEntry> AgentAnswerCache => Set<AgentAnswerCacheEntry>();
+
     /// <summary>Deliberately has no query filter — see KnowledgeIndexingQueueEntry.</summary>
     public DbSet<KnowledgeIndexingQueueEntry> KnowledgeIndexingQueue => Set<KnowledgeIndexingQueueEntry>();
 
@@ -144,6 +146,9 @@ public sealed class OrbitaDbContext(DbContextOptions<OrbitaDbContext> options, I
 
         modelBuilder.Entity<RoutingRule>()
             .HasQueryFilter(r => tenantContext.TenantId == null || r.TenantId == tenantContext.TenantId);
+
+        modelBuilder.Entity<AgentAnswerCacheEntry>()
+            .HasQueryFilter(e => tenantContext.TenantId == null || e.TenantId == tenantContext.TenantId);
 
         modelBuilder.Entity<TenantModelPreference>()
             .HasQueryFilter(p => tenantContext.TenantId == null || p.TenantId == tenantContext.TenantId);
