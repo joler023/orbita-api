@@ -13,12 +13,13 @@ namespace Orbita.UnitTests.Application;
 public sealed class AgentToolExecutorTests
 {
     private readonly Mock<IOpportunityService> _opportunities = new();
+    private readonly Mock<Orbita.Application.Inbox.IConversationHandoffService> _handoffs = new();
     private readonly AgentToolExecutor _sut;
 
     private readonly AgentToolContext _context = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
     public AgentToolExecutorTests()
-        => _sut = new AgentToolExecutor(_opportunities.Object, NullLogger<AgentToolExecutor>.Instance);
+        => _sut = new AgentToolExecutor(_opportunities.Object, _handoffs.Object, NullLogger<AgentToolExecutor>.Instance);
 
     private static OpportunitySummary Summary(string title)
         => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), title, null, null, null, null, null, DateTimeOffset.UtcNow);
@@ -108,6 +109,66 @@ public sealed class AgentToolExecutorTests
 
         Assert.False(result.Succeeded);
         _opportunities.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Escalating_hands_the_conversation_over_with_the_models_own_note()
+    {
+        _handoffs
+            .Setup(h => h.RequestAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Orbita.Domain.Inbox.HandoffReason>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _sut.ExecuteAsync(
+            _context,
+            new LlmToolCall("c1", AiToolCatalog.EscalarAHumano, """{"resumen":"Quiere devolver un pedido fuera de plazo."}"""),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+
+        // The note is taken rather than regenerated: the model is the only party here
+        // holding the whole exchange, and it saves the summarizing call.
+        _handoffs.Verify(
+            h => h.RequestAsync(
+                _context.TenantId,
+                _context.ConversationId,
+                _context.AgentId,
+                Orbita.Domain.Inbox.HandoffReason.AgentDecision,
+                "Quiere devolver un pedido fuera de plazo.",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Escalating_without_a_note_still_works()
+    {
+        // The argument is optional: a failed tool call would cost a round of the loop for
+        // something the service can produce itself.
+        var result = await _sut.ExecuteAsync(
+            _context, new LlmToolCall("c1", AiToolCatalog.EscalarAHumano, """{}"""), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        _handoffs.Verify(
+            h => h.RequestAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Orbita.Domain.Inbox.HandoffReason>(), null, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Escalating_a_conversation_already_waiting_is_not_a_failure()
+    {
+        // The customer is waiting for a person either way. Telling the model it failed
+        // would make it try again or apologize for something that did happen.
+        _handoffs
+            .Setup(h => h.RequestAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Orbita.Domain.Inbox.HandoffReason>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await _sut.ExecuteAsync(
+            _context, new LlmToolCall("c1", AiToolCatalog.EscalarAHumano, """{}"""), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("yaEstaba", result.ResultJson, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -27,6 +27,7 @@ public sealed class AgentConversationResponderTests
     private readonly Mock<IOutboundMessageService> _outbound = new();
     private readonly Mock<Orbita.Application.Outbox.IOutboxWriter> _outbox = new();
     private readonly Mock<IAgentToolExecutor> _tools = new();
+    private readonly Mock<IConversationHandoffService> _handoffs = new();
     private readonly Mock<IRoutingRuleRepository> _routing = new();
     private readonly Mock<Orbita.Domain.Channels.IChannelAccountRepository> _channelAccounts = new();
     private readonly Mock<Orbita.Domain.Tenants.ITenantRepository> _tenants = new();
@@ -49,8 +50,13 @@ public sealed class AgentConversationResponderTests
             .ReturnsAsync(new LlmCompletionResult("Sí, abrimos hasta las 7.", [], Usage));
 
         _runs
-            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()))
+            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>(), It.IsAny<bool>()))
             .Returns(_runId);
+
+        _handoffs
+            .Setup(h => h.RequestAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<HandoffReason>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         _search
             .Setup(s => s.SearchForAgentAsync(
@@ -81,6 +87,7 @@ public sealed class AgentConversationResponderTests
             _outbound.Object,
             _outbox.Object,
             _tools.Object,
+            _handoffs.Object,
             _routing.Object,
             _channelAccounts.Object,
             _tenants.Object,
@@ -298,10 +305,12 @@ public sealed class AgentConversationResponderTests
         Assert.Contains("mismo idioma", system, StringComparison.Ordinal);
         Assert.Contains("escribirle al equipo", system, StringComparison.Ordinal);
 
-        // The assistant points at the team; it never says it will arrange the handoff.
-        // Nothing exists to arrange until ORB-C07, so an offer would leave a customer
-        // who answers "sí, por favor" waiting for something nobody was told about.
-        Assert.Contains("Nunca digas que vas a avisarle a alguien", system, StringComparison.Ordinal);
+        // Since ORB-C07 the assistant may say it is leaving the conversation with the
+        // team, because that now happens. What it still must never promise is a reply:
+        // the queue is real, but ORB-B15 assigns nobody to it, so "alguien te escribe
+        // enseguida" would be the promise C06 already had to walk back once.
+        Assert.Contains("dejas la conversación con el equipo", system, StringComparison.Ordinal);
+        Assert.Contains("Nunca prometas cuándo le responden", system, StringComparison.Ordinal);
 
         // Órbita serves Colombia, Mexico and Spain: the assistant mirrors how the
         // customer writes instead of imposing one treatment on all three.
@@ -415,7 +424,10 @@ public sealed class AgentConversationResponderTests
 
         var outcome = await RespondAsync(conversation, inbound);
 
-        Assert.Equal(AgentReplyDecision.ModelProducedNoText, outcome.Decision);
+        // The call was made, so it is owed to the ledger whatever came back. Since
+        // ORB-C07 the customer also stops waiting on an assistant with nothing to say —
+        // see A_model_that_answers_with_nothing_hands_the_customer_to_a_person.
+        Assert.Equal(AgentReplyDecision.HandedOffToHuman, outcome.Decision);
         _runs.Verify(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()), Times.Once);
         Assert.Equal(1, _unitOfWork.SaveCount);
         _outbound.Verify(
@@ -427,7 +439,7 @@ public sealed class AgentConversationResponderTests
     public async Task A_blocked_topic_gets_the_owners_sentence_and_no_model_call()
     {
         var agent = Agent();
-        agent.SetGuardrails(["dosis"], "Eso lo ve mejor el equipo médico, escríbeles directamente.");
+        agent.SetGuardrails(["dosis"], "Eso lo ve mejor el equipo médico, escríbeles directamente.", AiAgent.DefaultHandoffReply);
         var (conversation, inbound) = OpenConversation("¿Qué dosis de ibuprofeno me tomo?");
 
         var outcome = await RespondAsync(conversation, inbound);
@@ -447,7 +459,7 @@ public sealed class AgentConversationResponderTests
     public async Task Every_block_is_recorded_with_the_topic_that_caused_it()
     {
         var agent = Agent();
-        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply);
+        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply, AiAgent.DefaultHandoffReply);
         var (conversation, inbound) = OpenConversation("¿qué dosis tomo?");
 
         await RespondAsync(conversation, inbound);
@@ -576,8 +588,8 @@ public sealed class AgentConversationResponderTests
 
         var recorded = new List<(IReadOnlyList<string>? Tools, IReadOnlyList<Guid>? Chunks)>();
         _runs
-            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>()))
-            .Callback((Guid _, Guid _, LlmUsage _, Guid? _, IReadOnlyList<string>? tools, IReadOnlyList<Guid>? chunks) => recorded.Add((tools, chunks)))
+            .Setup(r => r.Record(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<LlmUsage>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyList<string>?>(), It.IsAny<IReadOnlyList<Guid>?>(), It.IsAny<bool>()))
+            .Callback((Guid _, Guid _, LlmUsage _, Guid? _, IReadOnlyList<string>? tools, IReadOnlyList<Guid>? chunks, bool _) => recorded.Add((tools, chunks)))
             .Returns(_runId);
 
         await RespondAsync(conversation, inbound);
@@ -646,6 +658,101 @@ public sealed class AgentConversationResponderTests
         // Not claimed: an assistant that will not answer must not take the conversation.
         Assert.Null(conversation.AiAgentId);
         VerifyNothingWasSpent();
+    }
+
+    [Fact]
+    public async Task A_customer_asking_for_a_person_is_handed_over_without_a_model_call()
+    {
+        var agent = Agent();
+        var (conversation, inbound) = OpenConversation("necesito hablar con una persona");
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.HandedOffToHuman, outcome.Decision);
+        Assert.Equal(HandoffReason.CustomerAsked, outcome.HandoffReason);
+
+        _handoffs.Verify(
+            h => h.RequestAsync(_tenantId, conversation.Id, agent.Id, HandoffReason.CustomerAsked, null, It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // The owner's sentence, and nothing paid for: asking for a person is read off the
+        // message, not decided by a model.
+        _outbound.Verify(
+            o => o.SendSystemReplyAsync(_tenantId, conversation.Id, AiAgent.DefaultHandoffReply, It.IsAny<CancellationToken>()),
+            Times.Once);
+        VerifyNothingWasSpent();
+    }
+
+    [Fact]
+    public async Task A_customer_told_once_is_not_told_again_on_every_message()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("quiero hablar con alguien");
+
+        // The queue already has it, so this call moved nothing.
+        _handoffs
+            .Setup(h => h.RequestAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<HandoffReason>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await RespondAsync(conversation, inbound);
+
+        _outbound.Verify(
+            o => o.SendSystemReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_conversation_waiting_for_a_person_is_left_alone()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation();
+        conversation.RequestHumanHandoff(HandoffReason.CustomerAsked, "Pidió una persona.", _time.GetUtcNow());
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        // ORB-C07's last criterion: nothing brings the assistant back except a human.
+        Assert.Equal(AgentReplyDecision.HumanIsHandlingIt, outcome.Decision);
+        VerifyNothingWasSpent();
+    }
+
+    [Fact]
+    public async Task A_blocked_topic_also_leaves_the_conversation_with_a_person()
+    {
+        var agent = Agent();
+        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply, AiAgent.DefaultHandoffReply);
+        var (conversation, inbound) = OpenConversation("¿qué dosis tomo?");
+
+        await RespondAsync(conversation, inbound);
+
+        // Before ORB-C07 this answered the owner's sentence and left the customer with the
+        // assistant that had just declined to help them.
+        _handoffs.Verify(
+            h => h.RequestAsync(_tenantId, conversation.Id, agent.Id, HandoffReason.OutOfScopeTopic, null, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_model_that_answers_with_nothing_hands_the_customer_to_a_person()
+    {
+        var agent = Agent();
+        var (conversation, inbound) = OpenConversation();
+        _llm
+            .Setup(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmCompletionResult("   ", [], Usage));
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.HandedOffToHuman, outcome.Decision);
+        _handoffs.Verify(
+            h => h.RequestAsync(_tenantId, conversation.Id, agent.Id, HandoffReason.AgentDecision, null, It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // Silently: an apology for a failure the customer has not seen is one more message
+        // from an assistant that just proved it has nothing to say.
+        _outbound.Verify(
+            o => o.SendSystemReplyAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     /// <summary>
