@@ -62,16 +62,35 @@ public sealed class AgentAnswerFingerprintTests
         => Assert.NotEmpty(AgentAnswerFingerprint.Compute(Agent(), 0, null));
 
     [Theory]
-    [InlineData(0.79)]
-    [InlineData(1.0)]
-    public void A_threshold_outside_the_useful_range_is_refused(decimal threshold)
+    [InlineData(SemanticCacheLevel.Conservative)]
+    [InlineData(SemanticCacheLevel.Balanced)]
+    [InlineData(SemanticCacheLevel.Aggressive)]
+    public void A_level_survives_the_round_trip_through_the_number_behind_it(SemanticCacheLevel level)
     {
-        // Below 0.80 "similar" starts meaning "same topic" and the customer gets the answer
-        // to a question they did not ask; above 0.99 nothing ever matches.
-        Assert.Throws<ArgumentOutOfRangeException>(() => Agent().SetSemanticCacheThreshold(threshold));
+        // The stored column is the threshold; the level is what everyone outside this
+        // assembly sees. Retuning a level must not turn assistants already on it into
+        // something unreadable, which is why the way back is nearest-match, not equality.
+        var agent = Agent();
+        agent.SetSemanticCacheLevel(level);
+
+        Assert.Equal(level, agent.SemanticCacheLevel);
+        Assert.InRange(agent.SemanticCacheThreshold!.Value, 0.80m, 0.99m);
     }
 
     [Fact]
     public void The_cache_is_off_until_somebody_turns_it_on()
-        => Assert.Null(Agent().SemanticCacheThreshold);
+    {
+        Assert.Equal(SemanticCacheLevel.Off, Agent().SemanticCacheLevel);
+        Assert.Null(Agent().SemanticCacheThreshold);
+    }
+
+    [Fact]
+    public void Turning_it_off_again_leaves_no_threshold_behind()
+    {
+        var agent = Agent();
+        agent.SetSemanticCacheLevel(SemanticCacheLevel.Aggressive);
+        agent.SetSemanticCacheLevel(SemanticCacheLevel.Off);
+
+        Assert.Null(agent.SemanticCacheThreshold);
+    }
 }

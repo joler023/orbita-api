@@ -11,15 +11,18 @@ public interface ISemanticCacheService
     /// <exception cref="AiAgentNotFoundException"/>
     Task<SemanticCacheDto> GetAsync(Guid tenantId, Guid callerUserId, Guid agentId, CancellationToken cancellationToken);
 
-    /// <summary><c>null</c> turns the cache off.</summary>
+    /// <summary><see cref="SemanticCacheLevel.Off"/> turns the cache off.</summary>
     /// <exception cref="AiAgentNotFoundException"/>
-    /// <exception cref="ArgumentOutOfRangeException">A threshold outside 0.80–0.99.</exception>
-    Task<SemanticCacheDto> SetThresholdAsync(
-        Guid tenantId, Guid callerUserId, Guid agentId, decimal? threshold, CancellationToken cancellationToken);
+    Task<SemanticCacheDto> SetLevelAsync(
+        Guid tenantId, Guid callerUserId, Guid agentId, SemanticCacheLevel level, CancellationToken cancellationToken);
 }
 
+/// <param name="Level">
+/// How freely the assistant reuses answers. The similarity threshold behind it is never
+/// part of this contract — see <see cref="SemanticCacheLevel"/> for why.
+/// </param>
 /// <param name="HitRate">Hits over lookups, or null before the first lookup — 0% and "never asked" are different answers.</param>
-public sealed record SemanticCacheDto(decimal? Threshold, int Hits, int Misses, decimal? HitRate);
+public sealed record SemanticCacheDto(SemanticCacheLevel Level, int Hits, int Misses, decimal? HitRate);
 
 public sealed class SemanticCacheService(
     IAiAgentRepository agents,
@@ -41,8 +44,8 @@ public sealed class SemanticCacheService(
             cancellationToken);
     }
 
-    public async Task<SemanticCacheDto> SetThresholdAsync(
-        Guid tenantId, Guid callerUserId, Guid agentId, decimal? threshold, CancellationToken cancellationToken)
+    public async Task<SemanticCacheDto> SetLevelAsync(
+        Guid tenantId, Guid callerUserId, Guid agentId, SemanticCacheLevel level, CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
 
@@ -52,7 +55,7 @@ public sealed class SemanticCacheService(
             async ct =>
             {
                 agent = await agents.GetByIdAsync(tenantId, agentId, ct) ?? throw new AiAgentNotFoundException();
-                agent.SetSemanticCacheThreshold(threshold);
+                agent.SetSemanticCacheLevel(level);
             },
             cancellationToken);
 
@@ -66,6 +69,6 @@ public sealed class SemanticCacheService(
         var lookups = hits + misses;
 
         return new SemanticCacheDto(
-            agent.SemanticCacheThreshold, hits, misses, lookups == 0 ? null : Math.Round((decimal)hits / lookups, 4));
+            agent.SemanticCacheLevel, hits, misses, lookups == 0 ? null : Math.Round((decimal)hits / lookups, 4));
     }
 }

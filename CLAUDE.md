@@ -278,6 +278,7 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **`IOpportunityService.CreateForAgentAsync` / `MoveContactOpportunityForAgentAsync`** are the agent entry points: no permission check (the actor isn't a person — what authorizes it is the tool being enabled on the agent), audited through `RecordSystemActionAsync` with `actor_type = AiAgent` and the `agentId` in the diff.
 - **A failing tool never breaks the reply.** Bad arguments, a missing stage, or an exception all become `AgentToolResult(Succeeded: false)` with a Spanish sentence the model can relay; internal error text never reaches the model or the customer.
 - **`LlmMessage.AssistantToolCalls` + `tool_calls` on the OpenAI wire** were missing from ORB-C01: the chat format rejects a `tool` message that doesn't answer a `tool_calls` entry in the turn before it, so the second round of any tool loop would have failed against a real provider while passing every fake. Known gap: the Ollama adapter does not echo `tool_calls` yet (it has no configured `BaseUrl` in this deployment).
+- **`AiTool.ResultsIn`** names the module where a tool's result shows up (`"pipeline"` for both opportunity tools, null for retrieval). It exists because the frontend asked to tell "available" from "available, but you cannot see what it did yet" — this answers the half the backend actually knows. Whether a given screen has shipped is the frontend's own fact; hardcoding it here would be wrong the day it does.
 - **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
 - Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
 
@@ -295,15 +296,25 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **Not in orbita-schema.dbml**, which has no routing table — an addition like `tenant_model_preferences`. The story also names *etiqueta* as a condition; there is no `tags` table yet, so that condition does not exist rather than existing and never matching.
 - **Sticky**: rules choose who takes a *new* conversation; one that already has an assistant keeps it (ORB-C04's invariant). They never bounce a live exchange between assistants.
 - **Keywords match whole words**, accent- and case-insensitive, via the same `WholeWordText` ORB-C06's blocked topics use.
+- **Rules decide *who*, hours decide *whether that one answers now*** — they are not two switches racing each other, and the frontend was right to ask which wins. `RoutingPolicy.Decide` runs first and picks the assistant (or leaves it for the team); only then are *that* assistant's hours checked. So a rule sending WhatsApp to assistant X at 11pm, with X set to `LeaveForTeam`, leaves the conversation for the team — and the assistant is not assigned to it, so it is not claimed by someone who will never answer. A rule never overrides hours and hours never re-route.
 - **Business hours live on the assistant** (`ai_agents.business_hours`, jsonb, as the DBML specifies; null = always on), evaluated in `tenants.timezone`. `OutsideHours` is `AssistantAnswers` or `LeaveForTeam` — both halves of "fuera de horario puede contestar el agente o dejarse en cola". Checked *before* the assignment, so a message at 2am is not claimed by an assistant that then never answers. Overnight shifts are two slots; a slot that closes before it opens is refused. Unknown time zone → UTC, not a silenced assistant. `PUT .../ai-agents/{agentId}/business-hours`; not part of the draft.
 - Mapped with a value converter, not an owned JSON type: EF binds owned types through constructors it cannot satisfy for a positional record.
 
 ### Caché semántica de respuestas (ORB-C12)
 
 `agent_answer_cache` keeps answers an assistant already gave so a near-identical question
-can be answered without a model call. Off by default: `ai_agents.semantic_cache_threshold`
-is null until an owner sets one (0.80–0.99), through `PUT/GET
+can be answered without a model call. Off by default, through `PUT/GET
 /api/tenants/{tenantId}/ai-agents/{agentId}/semantic-cache`.
+
+- **The API takes a named level, never the number.** `SemanticCacheLevel` is `Off` |
+  `Conservative` | `Balanced` | `Aggressive`; `SemanticCacheLevels` is the one place each
+  becomes a cosine threshold (0.97 / 0.93 / 0.88), stored in
+  `ai_agents.semantic_cache_threshold`. This is the same call ORB-C10 made for
+  `temperature`, and the frontend was right to push back on the first draft of this
+  endpoint, which exposed the float: "is 0,92 a lot?" has no answer for the owner of a
+  bakery, and guessing wrong costs a customer the answer to a question they did not ask.
+  Retuning a level is a backend change with no frontend release; the way back from a stored
+  number is nearest-match, so retuning never makes an assistant's level unreadable.
 
 - **Only a conversation's first answer is ever stored or reused, and only if no tool ran.**
   A later turn was shaped by the turns before it — it answers that exchange, not the

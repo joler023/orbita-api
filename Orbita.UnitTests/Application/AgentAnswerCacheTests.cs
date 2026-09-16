@@ -37,10 +37,10 @@ public sealed class AgentAnswerCacheTests
         _sut = new AgentAnswerCache(_entries.Object, _documents.Object, _llm.Object, _runs.Object, _unitOfWork, _time);
     }
 
-    private AiAgent Agent(decimal? threshold = 0.95m)
+    private AiAgent Agent(SemanticCacheLevel level = SemanticCacheLevel.Balanced)
     {
         var agent = AiAgent.Create(_tenantId, "Espiga", "Cercano.", "Ayuda.", AgentStyle.Default, _time.GetUtcNow());
-        agent.SetSemanticCacheThreshold(threshold);
+        agent.SetSemanticCacheLevel(level);
 
         return agent;
     }
@@ -106,9 +106,11 @@ public sealed class AgentAnswerCacheTests
     }
 
     [Fact]
-    public async Task The_threshold_the_owner_set_is_the_one_the_search_uses()
+    public async Task The_level_the_owner_chose_becomes_the_threshold_the_search_uses()
     {
-        var agent = Agent(0.88m);
+        // The number never leaves the backend: the owner picks how careful to be, this is
+        // what that choice means to the query.
+        var agent = Agent(SemanticCacheLevel.Aggressive);
         double? used = null;
 
         _entries
@@ -119,13 +121,13 @@ public sealed class AgentAnswerCacheTests
 
         await _sut.LookupAsync(_tenantId, agent, _conversationId, "¿a qué hora abren?", CancellationToken.None);
 
-        Assert.Equal(0.88, used);
+        Assert.Equal((double)SemanticCacheLevels.AggressiveThreshold, used);
     }
 
     [Fact]
     public async Task An_assistant_with_the_cache_off_is_a_programming_error_not_a_miss()
         => await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _sut.LookupAsync(_tenantId, Agent(threshold: null), _conversationId, "hola", CancellationToken.None));
+            () => _sut.LookupAsync(_tenantId, Agent(SemanticCacheLevel.Off), _conversationId, "hola", CancellationToken.None));
 
     [Fact]
     public void A_stored_answer_carries_the_fingerprint_it_was_generated_under()

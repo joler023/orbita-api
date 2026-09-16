@@ -146,7 +146,7 @@ public sealed class AgentConversationResponderTests
     private AiAgent CachingAgent(AgentAnswerCacheHit? hit)
     {
         var agent = Agent();
-        agent.SetSemanticCacheThreshold(0.95m);
+        agent.SetSemanticCacheLevel(SemanticCacheLevel.Balanced);
 
         _answerCache
             .Setup(c => c.LookupAsync(_tenantId, agent, It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -246,7 +246,7 @@ public sealed class AgentConversationResponderTests
 
         await RespondAsync(conversation, inbound);
 
-        Assert.Null(agent.SemanticCacheThreshold);
+        Assert.Equal(SemanticCacheLevel.Off, agent.SemanticCacheLevel);
         _answerCache.Verify(
             c => c.LookupAsync(It.IsAny<Guid>(), It.IsAny<AiAgent>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
