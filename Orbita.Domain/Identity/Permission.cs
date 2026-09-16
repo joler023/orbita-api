@@ -44,6 +44,14 @@ public enum Permission
     /// <summary>Send outbound messages on a conversation (ORB-B05). Agents included.</summary>
     SendMessages,
 
+    /// <summary>
+    /// Read conversations — today, the queue of ones waiting for a person (ORB-C07).
+    /// Every role, like the other <c>View*</c> permissions: seeing who is waiting is not
+    /// a privilege, and a Viewer who cannot see the queue cannot tell anyone about it.
+    /// ORB-B12's inbox listing is the other reader this is meant for.
+    /// </summary>
+    ViewInbox,
+
     /// <summary>Register message templates locally and sync their approval status from Meta (ORB-B07).</summary>
     ManageTemplates,
 
