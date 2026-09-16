@@ -410,14 +410,22 @@ still B15's.
 - **Routing and business-hours decisions never hand over.** `LeftForTeamByRule` and
   `OutsideBusinessHours` are per-message decisions; a handoff is sticky, so marking them
   would permanently disable the assistant on that thread because one message arrived at 2am.
-- **The summary costs one cheap model call per handoff, and never blocks it.**
-  `LlmTask.Classify` (the cheap tier — a three-sentence internal note has the same economics
-  as a classification, and a task of its own would mean a config entry per provider for a
-  distinction nobody would act on). A provider outage logs a warning and hands the
-  conversation over **without** a summary: the handoff is the promise, the summary is a
-  convenience, and losing the second must never cost the first. When the model hands over
-  through the tool it writes the note itself (`resumen`), which skips the call — it is the
-  only party in the exchange holding the whole context.
+- **The summary is written *after* the handoff, reacting to its outbox event — measured, not
+  assumed.** The first version wrote it inside `RequestAsync`, and against Neon with the real
+  models a customer who asked for a person waited **13.8 s** for the sentence telling them
+  so, against **6.6 s** for an ordinary answer: a four-second model call for a note meant for
+  somebody else sat in front of them. Now `RequestAsync` is one transaction with no model
+  call, and `HandoffSummaryIntegrationHandler` calls `WriteSummaryAsync` on
+  `conversation.handoff_requested` — domain rule 3, doing exactly what it says. It also fixed
+  resilience in passing: the inline version had to swallow a provider failure and lose the
+  note for good, while the handler lets it propagate so the dispatcher **retries with
+  backoff**. The queue therefore shows `summary: null` for a few seconds after a handoff;
+  the dashboard has to treat it as "todavía no" and not as "no hay". One cheap call per
+  handoff (`LlmTask.Classify` — a three-sentence internal note has the economics of a
+  classification, and a task of its own would mean a config entry per provider for a
+  distinction nobody would act on). When the model hands over through the tool it writes the
+  note itself (`resumen`), and the handler skips the call; `AttachHandoffSummary` never
+  overwrites a note and drops one that arrives after a person gave the conversation back.
 - **The summary is customer data and never leaves the RLS'd table.** The outbox event
   (`conversation.handoff_requested`) carries ids and the reason enum only — not the summary,
   unlike C06's `topic`, which was the *owner's* configuration and therefore safe to put

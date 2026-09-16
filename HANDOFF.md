@@ -15,7 +15,8 @@ Lo que quedó:
 - Cuatro disparadores: el cliente lo pide, se nota frustrado (frases + el mismo mensaje tres veces), tema bloqueado (C06), o el asistente se rinde (herramienta `escalar_a_humano`, bucle, ventana agotada, respuesta vacía o inválida). Los dos primeros no gastan llamada al modelo.
 - `GET /api/tenants/{t}/handoffs` → `{ items, nextCursor, total }`, espera más antigua primero. `POST .../conversations/{id}/return-to-assistant` devuelve la conversación al asistente.
 - Una vez traspasada, el asistente no vuelve a contestar aunque el cliente siga escribiendo (`Conversation.RegisterInbound` ya no reabre una conversación en cola).
-- Resumen escrito una vez al traspasar (llamada barata, `LlmTask.Classify`); si el proveedor está caído, el traspaso ocurre igual sin resumen. `ai_runs.was_handoff` por fin se escribe.
+- Resumen escrito **después** del traspaso, reaccionando al evento del outbox (llamada barata, `LlmTask.Classify`). Si el proveedor está caído, el traspaso ya está hecho y el resumen se reintenta con backoff. `ai_runs.was_handoff` por fin se escribe.
+- **Medido contra Neon con los modelos reales, no supuesto.** La primera versión escribía el resumen dentro del traspaso y el cliente que pedía una persona esperaba **13,8 s** la frase de traspaso, contra **6,6 s** de una respuesta normal. Se movió el resumen fuera de su camino (commit `fix: write the handoff summary off the customer's path`). El resumen de prueba real salió en español y fiel a lo que dijo el cliente, por USD 0,00004.
 - `escalar_a_humano` pasa a `isAvailable: true`, `resultsIn: "inbox"`. Nuevo permiso `ViewInbox` (los cuatro roles). `handoffReply` nuevo y **opcional** en `PUT .../guardrails`.
 - Migración `AddConversationHandoff` (tres columnas en `conversations`, `was_handoff` en `ai_runs`, `handoff_reply` en `ai_agents`).
 
@@ -23,7 +24,7 @@ Lo que quedó:
 
 **Deuda conocida:** "se notifica en vivo" es el evento `conversation.handoff_requested` del outbox, no un WebSocket — eso es `ORB-B14`. La pantalla de la cola no tiene dueño decidido (el frontend no toca la bandeja de Track B sin que su humano lo decida).
 
-**Rareza de la máquina, otra vez:** Smart App Control bloqueó el `Orbita.IntegrationTests.dll` de Debug recién compilado en esta rama. **`dotnet test -c Release` lo esquiva** (otra ruta de salida) sin tocar SAC. Mejor workaround que "cambiar de rama".
+**Rareza de la máquina, otra vez, y esta vez con solución estable:** Smart App Control bloqueó los binarios recién compilados (Debug primero; `-c Release` lo esquivó un rato y luego también se bloqueó, igual que una configuración inventada). Lo que funciona siempre es **correr la suite dentro de un contenedor Linux del SDK**, donde SAC no existe y Testcontainers usa el Docker del host por el socket — ver "Correr las pruebas cuando Smart App Control bloquea" en `README.md`. No desactivar SAC.
 
 **2026-09-16 (2)** — Dos cosas, ninguna historia nueva.
 
