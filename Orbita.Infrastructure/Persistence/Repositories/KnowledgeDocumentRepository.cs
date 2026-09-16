@@ -27,4 +27,25 @@ public sealed class KnowledgeDocumentRepository(OrbitaDbContext dbContext) : IKn
             .OrderByDescending(d => d.CreatedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
+
+    public async Task<(int Count, DateTimeOffset? LatestChange)> SummarizeForAgentAsync(
+        Guid tenantId, Guid agentId, CancellationToken cancellationToken)
+    {
+        // Deleting a document lowers the count; uploading one raises it and moves
+        // created_at; reindexing moves indexed_at - every path that changes what retrieval
+        // would return changes this pair, and so changes the fingerprint built from it.
+        var query = dbContext.KnowledgeDocuments.Where(d => d.TenantId == tenantId && d.AgentId == agentId);
+
+        var count = await query.CountAsync(cancellationToken);
+
+        if (count == 0)
+        {
+            return (0, null);
+        }
+
+        var latestCreated = await query.MaxAsync(d => (DateTimeOffset?)d.CreatedAt, cancellationToken);
+        var latestIndexed = await query.MaxAsync(d => d.IndexedAt, cancellationToken);
+
+        return (count, latestIndexed > latestCreated ? latestIndexed : latestCreated);
+    }
 }

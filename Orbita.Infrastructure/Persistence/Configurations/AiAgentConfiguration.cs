@@ -79,6 +79,9 @@ public sealed class AiAgentConfiguration : IEntityTypeConfiguration<AiAgent>
                     hours => System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson).GetHashCode(),
                     hours => hours == null ? null : System.Text.Json.JsonSerializer.Deserialize<BusinessHours>(System.Text.Json.JsonSerializer.Serialize(hours, BusinessHoursJson), BusinessHoursJson)));
 
+        // ORB-C12. Null = the semantic cache is off.
+        builder.Property(a => a.SemanticCacheThreshold).HasColumnName("semantic_cache_threshold").HasPrecision(3, 2);
+
         builder.Property(a => a.IsEnabled).HasColumnName("is_enabled").IsRequired();
         builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired();
 
