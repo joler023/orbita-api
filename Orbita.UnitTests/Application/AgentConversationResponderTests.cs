@@ -30,6 +30,7 @@ public sealed class AgentConversationResponderTests
     private readonly Mock<IRoutingRuleRepository> _routing = new();
     private readonly Mock<Orbita.Domain.Channels.IChannelAccountRepository> _channelAccounts = new();
     private readonly Mock<Orbita.Domain.Tenants.ITenantRepository> _tenants = new();
+    private readonly Mock<IAgentAnswerCache> _answerCache = new();
     private readonly PassThroughUnitOfWork _unitOfWork = new();
     private readonly MutableTimeProvider _time = new(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
 
@@ -83,6 +84,7 @@ public sealed class AgentConversationResponderTests
             _routing.Object,
             _channelAccounts.Object,
             _tenants.Object,
+            _answerCache.Object,
             _unitOfWork,
             _time,
             NullLogger<AgentConversationResponder>.Instance);
@@ -139,6 +141,116 @@ public sealed class AgentConversationResponderTests
 
     private Task<AgentReplyOutcome> RespondAsync(Conversation conversation, Message inbound)
         => _sut.RespondAsync(_tenantId, conversation.Id, inbound.Id, CancellationToken.None);
+
+    /// <summary>ORB-C12: an assistant with a threshold set, and a cache that answers as told.</summary>
+    private AiAgent CachingAgent(AgentAnswerCacheHit? hit)
+    {
+        var agent = Agent();
+        agent.SetSemanticCacheThreshold(0.95m);
+
+        _answerCache
+            .Setup(c => c.LookupAsync(_tenantId, agent, It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentCacheLookup(hit, [0.1f, 0.2f], "fingerprint", _runId));
+
+        return agent;
+    }
+
+    [Fact]
+    public async Task A_close_enough_question_is_answered_from_the_cache_without_a_model_call()
+    {
+        var agent = CachingAgent(new AgentAnswerCacheHit(Guid.NewGuid(), "Abrimos hasta las 7.", 0.97));
+        var (conversation, inbound) = OpenConversation();
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // The saving is the point, but the reply still goes out the one way replies go out,
+        // carrying the embedding run that found it so the ledger still explains the message.
+        _outbound.Verify(
+            o => o.SendAgentReplyAsync(_tenantId, conversation.Id, "Abrimos hasta las 7.", _runId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        Assert.Equal(agent.Id, conversation.AiAgentId);
+    }
+
+    [Fact]
+    public async Task A_miss_answers_normally_and_keeps_the_answer_for_next_time()
+    {
+        var agent = CachingAgent(hit: null);
+        var (conversation, inbound) = OpenConversation();
+
+        await RespondAsync(conversation, inbound);
+
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        _answerCache.Verify(
+            c => c.Store(_tenantId, agent, It.IsAny<AgentCacheLookup>(), "¿Hasta qué hora abren?", "Sí, abrimos hasta las 7."),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task An_answer_that_acted_on_the_crm_is_never_kept()
+    {
+        // Replaying "ya registré tu pedido" to a different customer would claim an action
+        // that never happened for them.
+        var agent = CachingAgent(hit: null);
+        agent.EnableTools([AiToolCatalog.ConsultarConocimiento, AiToolCatalog.CrearOportunidad]);
+        var (conversation, inbound) = OpenConversation();
+
+        _tools.Setup(t => t.DefinitionsFor(It.IsAny<AiAgent>()))
+            .Returns([new LlmTool(AiToolCatalog.CrearOportunidad, "Registra una oportunidad.", "{}")]);
+        _tools
+            .Setup(t => t.ExecuteAsync(It.IsAny<AgentToolContext>(), It.IsAny<LlmToolCall>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentToolResult(AiToolCatalog.CrearOportunidad, true, """{"ok":true}"""));
+
+        var calls = 0;
+        _llm
+            .Setup(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => calls++ == 0
+                ? new LlmCompletionResult(null, [new LlmToolCall("c1", AiToolCatalog.CrearOportunidad, "{}")], Usage)
+                : new LlmCompletionResult("Listo, queda registrado.", [], Usage));
+
+        await RespondAsync(conversation, inbound);
+
+        _answerCache.Verify(
+            c => c.Store(It.IsAny<Guid>(), It.IsAny<AiAgent>(), It.IsAny<AgentCacheLookup>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Later_turns_are_neither_answered_from_the_cache_nor_kept()
+    {
+        // The second answer in a conversation was shaped by the first; it answers that
+        // exchange, not the question on its own.
+        var agent = CachingAgent(new AgentAnswerCacheHit(Guid.NewGuid(), "Abrimos hasta las 7.", 0.99));
+        var (conversation, inbound) = OpenConversation();
+
+        var earlier = Message.Inbound(_tenantId, conversation.Id, "wamid.test.0", "hola", null, null, _time.GetUtcNow());
+        _messages
+            .Setup(r => r.GetRecentByConversationAsync(_tenantId, conversation.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([earlier, inbound]);
+
+        await RespondAsync(conversation, inbound);
+
+        _answerCache.Verify(
+            c => c.LookupAsync(It.IsAny<Guid>(), It.IsAny<AiAgent>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _llm.Verify(p => p.CompleteAsync(It.IsAny<LlmCompletionRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task An_assistant_without_a_threshold_never_consults_the_cache()
+    {
+        var agent = Agent();
+        var (conversation, inbound) = OpenConversation();
+
+        await RespondAsync(conversation, inbound);
+
+        Assert.Null(agent.SemanticCacheThreshold);
+        _answerCache.Verify(
+            c => c.LookupAsync(It.IsAny<Guid>(), It.IsAny<AiAgent>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 
     [Fact]
     public async Task It_answers_and_sends_through_the_normal_outbound_queue()
