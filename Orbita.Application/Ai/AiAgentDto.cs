@@ -41,7 +41,8 @@ public sealed record AiAgentDto(
     AiAgentDraftDto? Draft,
     int ConversationCount,
     DateTimeOffset CreatedAt,
-    AgentGuardrailsDto Guardrails)
+    AgentGuardrailsDto Guardrails,
+    BusinessHours? BusinessHours)
 {
     public static AiAgentDto From(AiAgent agent, AiAgentDraft? draft = null, int conversationCount = 0)
     {
@@ -62,7 +63,11 @@ public sealed record AiAgentDto(
             pending is null ? null : AiAgentDraftDto.From(pending),
             conversationCount,
             agent.CreatedAt,
-            new AgentGuardrailsDto(agent.BlockedTopics, agent.OutOfScopeReply));
+            new AgentGuardrailsDto(agent.BlockedTopics, agent.OutOfScopeReply),
+            // Null means always on. Readable here because a screen that can set the hours
+            // and never show them back is a screen nobody can trust — and like the
+            // guardrails, this is live configuration, not part of the draft.
+            agent.BusinessHours);
     }
 }
 

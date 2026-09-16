@@ -220,6 +220,70 @@ public sealed class AgentReplyFlowTests : IClassFixture<TenantsApiFixture>
     }
 
     [Fact]
+    public async Task Business_hours_survive_the_round_trip_and_can_be_cleared()
+    {
+        // The frontend builds its "¿cuándo trabaja?" control against exactly this: set the
+        // hours, read them back, and send null to go back to always on. None of the three
+        // was covered over HTTP — the jsonb value converter and the clearing path were only
+        // proven in unit tests, which do not serialize anything.
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        var set = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/business-hours", cookies,
+            new
+            {
+                businessHours = new
+                {
+                    slots = new[]
+                    {
+                        new { day = "Monday", opens = "08:00:00", closes = "12:00:00" },
+                        new { day = "Monday", opens = "14:00:00", closes = "18:00:00" },
+                    },
+                    outsideHours = "LeaveForTeam",
+                },
+            });
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, set.StatusCode);
+
+        var saved = (await set.Content.ReadFromJsonAsync<AiAgentDto>(TestRequests.JsonOptions))!.BusinessHours;
+        Assert.NotNull(saved);
+        Assert.Equal(OutsideHoursBehavior.LeaveForTeam, saved.OutsideHours);
+        Assert.Equal(2, saved.Slots.Count);
+        Assert.Equal(DayOfWeek.Monday, saved.Slots[0].Day);
+        Assert.Equal(new TimeOnly(8, 0), saved.Slots[0].Opens);
+
+        // Read through a different request, so this is the stored jsonb and not an echo.
+        var reread = await TestRequests.SendAsync(
+            client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-agents/{agentId}", cookies);
+        var agent = await reread.Content.ReadFromJsonAsync<AiAgentDto>(TestRequests.JsonOptions);
+        Assert.Equal(new TimeOnly(18, 0), agent!.BusinessHours!.Slots[1].Closes);
+
+        var cleared = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/business-hours", cookies,
+            new { businessHours = (object?)null });
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, cleared.StatusCode);
+        Assert.Null((await cleared.Content.ReadFromJsonAsync<AiAgentDto>(TestRequests.JsonOptions))!.BusinessHours);
+    }
+
+    [Fact]
+    public async Task A_schedule_with_no_slots_is_refused_over_http()
+    {
+        // Saving an empty form would otherwise silence the assistant for good.
+        var client = TestRequests.CreateClient(_fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var agentId = await EnableDefaultAgentAsync(client, tenantId, cookies);
+
+        var response = await TestRequests.SendAsync(
+            client, HttpMethod.Put, $"/api/tenants/{tenantId}/ai-agents/{agentId}/business-hours", cookies,
+            new { businessHours = new { slots = Array.Empty<object>(), outsideHours = "LeaveForTeam" } });
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task A_rule_cannot_route_to_another_tenants_assistant()
     {
         var client = TestRequests.CreateClient(_fixture);
