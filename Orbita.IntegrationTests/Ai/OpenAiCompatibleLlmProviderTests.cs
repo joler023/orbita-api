@@ -244,6 +244,52 @@ public sealed class OpenAiCompatibleLlmProviderTests
     }
 
     [Fact]
+    public async Task EmbedBatchAsync_returns_one_vector_per_input_in_the_order_given()
+    {
+        // The response deliberately comes back out of order. Lining the vectors up by
+        // arrival would attach each chunk's text to another chunk's vector — a corpus that
+        // looks indexed and answers nonsense, with nothing failing anywhere.
+        var handler = StubHttpMessageHandler.RespondingWith("""
+            {
+              "model": "text-embedding-3-small",
+              "data": [
+                { "index": 2, "embedding": [0.3, 0.3] },
+                { "index": 0, "embedding": [0.1, 0.1] },
+                { "index": 1, "embedding": [0.2, 0.2] }
+              ],
+              "usage": { "prompt_tokens": 21, "completion_tokens": 0 }
+            }
+            """);
+
+        var result = await Build(handler).EmbedBatchAsync(["uno", "dos", "tres"], Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal([0.1f, 0.1f], result.Vectors[0]);
+        Assert.Equal([0.2f, 0.2f], result.Vectors[1]);
+        Assert.Equal([0.3f, 0.3f], result.Vectors[2]);
+
+        // One call, one billed usage — that is why it is one ai_runs row.
+        Assert.Single(handler.ReceivedUris);
+        Assert.Equal(21, result.Usage.TokensIn);
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_refuses_a_response_that_lost_an_input()
+    {
+        // Fewer vectors than inputs would otherwise index some chunks against whatever
+        // happened to be in the array at that position.
+        var handler = StubHttpMessageHandler.RespondingWith("""
+            {
+              "model": "text-embedding-3-small",
+              "data": [{ "index": 0, "embedding": [0.1, 0.1] }],
+              "usage": { "prompt_tokens": 7 }
+            }
+            """);
+
+        await Assert.ThrowsAsync<LlmProviderException>(() =>
+            Build(handler).EmbedBatchAsync(["uno", "dos"], Guid.NewGuid(), CancellationToken.None));
+    }
+
+    [Fact]
     public void IsConfigured_is_false_without_a_base_address()
         => Assert.False(
             new OpenAiCompatibleLlmProvider(
