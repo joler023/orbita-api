@@ -210,21 +210,17 @@ public sealed class ConversationHandoffService(
 
         // Its own tenant-scoped transaction: the one EnsurePermissionAsync opened has
         // already committed, and SET LOCAL app.tenant_id does not outlive it.
-        var (entries, total) = await unitOfWork.QueryInTenantScopeAsync(
-            async ct =>
-            (
-                await conversations.ListWaitingForHumanAsync(tenantId, waitingSince, pageSize + 1, ct),
-                await conversations.CountWaitingForHumanAsync(tenantId, ct)
-            ),
+        var result = await unitOfWork.QueryInTenantScopeAsync(
+            ct => conversations.ListWaitingForHumanAsync(tenantId, waitingSince, pageSize + 1, ct),
             cancellationToken);
 
-        var hasMore = entries.Count > pageSize;
-        var page = hasMore ? entries.Take(pageSize).ToList() : entries;
+        var hasMore = result.Entries.Count > pageSize;
+        var page = hasMore ? result.Entries.Take(pageSize).ToList() : result.Entries;
 
         return new HandoffQueuePage(
             [.. page.Select(HandoffDto.From)],
             hasMore ? EncodeCursor(page[^1].RequestedAt) : null,
-            total);
+            result.Total);
     }
 
     public async Task<HandoffStateDto> ReturnToAssistantAsync(

@@ -100,10 +100,15 @@ public sealed record HandoffQueuePage(IReadOnlyList<HandoffDto> Items, string? N
 /// to announce: the frontend's rule is to stay silent on a reason it does not know rather
 /// than invent one.
 /// </param>
+/// <param name="ContactName">
+/// Never null: <c>contacts.display_name</c> is NOT NULL and the queue joins it inner. The
+/// frontend asked, having seen <c>string?</c> here while the contract said it always
+/// comes; the type was the one that was wrong.
+/// </param>
 public sealed record HandoffDto(
     Guid ConversationId,
     Guid ContactId,
-    string? ContactName,
+    string ContactName,
     HandoffReason Reason,
     DateTimeOffset RequestedAt,
     string? Summary,

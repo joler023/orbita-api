@@ -27,19 +27,24 @@ public interface IConversationRepository
     /// because a queue is precisely the list that grows when the team cannot keep up: a
     /// silent cap would hide the 51st customer on the worst day the business has.
     /// </summary>
+    /// <para>The page and its total come back <b>from one query</b>, and that is not a
+    /// micro-optimization: two statements in one transaction each get their own snapshot
+    /// under READ COMMITTED, so a handoff committing between them produced a page of zero
+    /// rows reporting a total of one — "mostrando 0 de 1" on a screen whose whole job is
+    /// to be trusted about who is waiting. A parallel test run caught it.</para>
     /// <param name="waitingSince">Exclusive lower bound from the cursor; null starts at the front.</param>
-    Task<IReadOnlyList<HandoffQueueEntry>> ListWaitingForHumanAsync(
+    Task<HandoffQueuePageResult> ListWaitingForHumanAsync(
         Guid tenantId,
         DateTimeOffset? waitingSince,
         int limit,
         CancellationToken cancellationToken);
-
-    /// <summary>
-    /// How many conversations are waiting in total, so a screen can say "50 de 137"
-    /// instead of quietly showing the first page as if it were all of them.
-    /// </summary>
-    Task<int> CountWaitingForHumanAsync(Guid tenantId, CancellationToken cancellationToken);
 }
+
+/// <param name="Total">
+/// How many are waiting in the whole queue, not just on this page, so a screen can say
+/// "50 de 137" instead of quietly showing the first page as if it were all of them.
+/// </param>
+public sealed record HandoffQueuePageResult(IReadOnlyList<HandoffQueueEntry> Entries, int Total);
 
 /// <summary>
 /// One row of the handoff queue, joined with the contact's display name.
@@ -51,7 +56,7 @@ public interface IConversationRepository
 public sealed record HandoffQueueEntry(
     Guid ConversationId,
     Guid ContactId,
-    string? ContactName,
+    string ContactName,
     HandoffReason Reason,
     DateTimeOffset RequestedAt,
     string? Summary,
