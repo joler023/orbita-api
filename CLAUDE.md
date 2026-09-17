@@ -508,6 +508,13 @@ document (184 chunks): one embedding call per chunk, sequentially. `ILlmProvider
   the design: the same batches took 2–7 s an hour later. If indexing is slow, check the
   per-call `latency_ms` in `ai_runs` before touching the code.
 
+**The seed was spending money.** `scripts/seed-dev.sql` left 5 % of its `message.received`
+outbox rows unpublished "to look realistic". An unpublished outbox row is not decoration,
+it is a work order: the first app started against a freshly seeded database had its
+assistant answer historical customer messages — real OpenRouter spend, plus 17 handoffs
+to a person invented on sample data. Every seeded row is now published. A realistic
+backlog is made by sending a webhook, never by fabricating pending work in any queue.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
