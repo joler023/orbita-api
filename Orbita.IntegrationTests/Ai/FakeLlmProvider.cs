@@ -87,6 +87,24 @@ public sealed class FakeLlmProvider : ILlmProvider
     }
 
     /// <summary>
+    /// One call for many texts, like the real provider — and counted as <b>one</b>, so a
+    /// test can tell batching apart from a loop pretending to be one.
+    /// </summary>
+    public Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(texts);
+        EmbedCallCount++;
+        ThrowIfScripted();
+
+        return Task.FromResult(new LlmEmbeddingBatchResult(
+            [.. texts.Select(IReadOnlyList<float> (text) => Embed(text))],
+            Usage("fake-embed")));
+    }
+
+    /// <summary>
     /// A unit-length vector seeded from the text's SHA-256, so it is stable across runs
     /// and across processes — a random vector would make any relevance assertion
     /// meaningless.

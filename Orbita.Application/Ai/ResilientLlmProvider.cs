@@ -70,6 +70,12 @@ public sealed class ResilientLlmProvider : ILlmProvider
     public Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
         => ExecuteAsync(provider => provider.EmbedAsync(text, tenantId, cancellationToken), cancellationToken);
 
+    public Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+        => ExecuteAsync(provider => provider.EmbedBatchAsync(texts, tenantId, cancellationToken), cancellationToken);
+
     /// <summary>
     /// Failover applies only up to the first chunk handed to the caller. Once any text
     /// has been yielded, a mid-stream failure propagates: restarting on another provider

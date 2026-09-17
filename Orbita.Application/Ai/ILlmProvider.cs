@@ -51,4 +51,21 @@ public interface ILlmProvider
     /// </summary>
     /// <exception cref="LlmProviderException">The call failed; see <c>IsTransient</c>.</exception>
     Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The same thing for many texts at once, in one round trip, with the vectors returned
+    /// in the order they were given.
+    ///
+    /// It exists because indexing is the one place that embeds in bulk, and doing it one
+    /// call at a time is what made ORB-C02's acceptance criterion unreachable: measured
+    /// against the real provider, a 50-page document took <b>712 seconds</b> against the
+    /// 120 the story asks for, spent almost entirely waiting — 62 sequential calls whose
+    /// latency averaged 4,5 s and peaked at 129 s for a single one. The work is the same;
+    /// the waiting is not.
+    /// </summary>
+    /// <exception cref="LlmProviderException">The call failed; see <c>IsTransient</c>.</exception>
+    Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken);
 }

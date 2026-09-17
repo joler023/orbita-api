@@ -158,22 +158,53 @@ public sealed class OpenAiCompatibleLlmProvider(
 
     public async Task<LlmEmbeddingResult> EmbedAsync(string text, Guid tenantId, CancellationToken cancellationToken)
     {
+        var batch = await EmbedBatchAsync([text], tenantId, cancellationToken);
+
+        return new LlmEmbeddingResult(batch.Vectors[0], batch.Usage);
+    }
+
+    public async Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(texts);
+
+        if (texts.Count == 0)
+        {
+            throw new ArgumentException("There is nothing to embed.", nameof(texts));
+        }
+
         var model = await modelSelector.SelectModelAsync(tenantId, LlmTask.Embed, Name, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
         using var response = await SendAsync(
             EmbeddingsPath,
-            new OpenAiEmbeddingRequest { Model = model, Input = text },
+            new OpenAiEmbeddingRequest { Model = model, Input = texts },
             cancellationToken);
         var payload = await ReadAsync<OpenAiEmbeddingResponse>(response, cancellationToken);
         stopwatch.Stop();
 
-        if (payload.Data?.FirstOrDefault()?.Embedding is not { } vector)
+        if (payload.Data is not { Count: > 0 } data || data.Count != texts.Count)
         {
-            throw LlmHttpFailure.FromMalformedResponse(Name, "the data array carried no embedding");
+            throw LlmHttpFailure.FromMalformedResponse(
+                Name, $"the data array carried {payload.Data?.Count ?? 0} embeddings for {texts.Count} inputs");
         }
 
-        return new LlmEmbeddingResult(
-            vector,
+        // Ordered by the response's own index, never by arrival: see OpenAiEmbeddingData.
+        var vectors = new IReadOnlyList<float>[texts.Count];
+
+        foreach (var item in data)
+        {
+            if (item.Embedding is not { } vector || item.Index < 0 || item.Index >= vectors.Length)
+            {
+                throw LlmHttpFailure.FromMalformedResponse(Name, "an embedding came back with no vector or an unusable index");
+            }
+
+            vectors[item.Index] = vector;
+        }
+
+        return new LlmEmbeddingBatchResult(
+            vectors,
             BuildUsage(payload.Model ?? model, payload.Usage, stopwatch, finishReason: null));
     }
 
