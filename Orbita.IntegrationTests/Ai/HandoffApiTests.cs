@@ -66,9 +66,10 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
         // The note is what makes the queue worth reading, and it is the model's. It arrives
         // a moment after the handoff, written in reaction to the event, so the customer
         // never waits on it — which means a test has to wait for it instead.
-        await Eventually.AssertAsync(async () =>
-            (await QueueAsync(client, tenantId, cookies)).Items.SingleOrDefault()?.Summary
-                == "El cliente pidió hablar con una persona.");
+        await Eventually.AssertAsync(
+            async () => (await QueueAsync(client, tenantId, cookies)).Items.SingleOrDefault()?.Summary
+                == "El cliente pidió hablar con una persona.",
+            FlowTimeout);
 
         // The sentence the customer got is the owner's, not the model's — a system
         // message, which on the wire is the pair (no sender, no run). AuthorKind itself is
@@ -141,7 +142,7 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
         var repliesBefore = await CountAgentRepliesAsync(conversationId);
         await SendInboundAsync(client, account.ExternalId, "573001110003", "¿a qué hora abren?");
 
-        await Eventually.AssertAsync(async () => await CountAgentRepliesAsync(conversationId) > repliesBefore);
+        await Eventually.AssertAsync(async () => await CountAgentRepliesAsync(conversationId) > repliesBefore, FlowTimeout);
 
         // Doing it twice is not an error: the conversation is already where the caller
         // wants it, the same reasoning as discarding a draft that is not there.
@@ -264,14 +265,16 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
         // The model's own note, not a generated one.
         Assert.Equal("Reclama por un pedido que llegó incompleto.", waiting.Summary);
 
-        await Eventually.AssertAsync(async () =>
-        {
-            await using var db = _fixture.CreateOwnerDbContext();
+        await Eventually.AssertAsync(
+            async () =>
+            {
+                await using var db = _fixture.CreateOwnerDbContext();
 
-            return await db.Messages.AsNoTracking().AnyAsync(m =>
-                m.ConversationId == waiting.ConversationId
-                && m.Body == "Te paso con alguien del equipo para que lo revise.");
-        });
+                return await db.Messages.AsNoTracking().AnyAsync(m =>
+                    m.ConversationId == waiting.ConversationId
+                    && m.Body == "Te paso con alguien del equipo para que lo revise.");
+            },
+            FlowTimeout);
     }
 
     [Fact]
@@ -336,15 +339,26 @@ public sealed class HandoffApiTests : IClassFixture<TenantsApiFixture>
     {
         HandoffQueuePage page = null!;
 
-        await Eventually.AssertAsync(async () =>
-        {
-            page = await QueueAsync(client, tenantId, cookies, limit: 100);
+        await Eventually.AssertAsync(
+            async () =>
+            {
+                page = await QueueAsync(client, tenantId, cookies, limit: 100);
 
-            return page.Total >= expected;
-        });
+                return page.Total >= expected;
+            },
+            FlowTimeout);
 
         return page;
     }
+
+    /// <summary>
+    /// How long a handoff may take to travel the whole pipeline. One window covers ingest,
+    /// dispatch, the assistant and the handoff itself — the reply-flow tests split the same
+    /// distance into two ten-second waits. With the default ten, two different tests in
+    /// this class failed on two full-suite runs and passed every isolated one: the
+    /// pipeline was not broken, the machine was busy running forty other fixtures.
+    /// </summary>
+    private static readonly TimeSpan FlowTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// A reply the model wrote, which on the wire is an outbound message carrying a run
