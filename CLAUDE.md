@@ -451,6 +451,16 @@ still B15's.
   conversation back needs `SendMessages`, because handing a customer back to a machine is
   acting on the conversation rather than viewing it. ORB-B12's inbox listing is the other
   reader `ViewInbox` was named for.
+- **The repetition trigger only counts the current 24h window.** A conversation here is a
+  lifetime thread, so counting identical questions across all of it would hand a customer
+  to a person for asking the same thing once a month. Found measuring against seeded data,
+  where long threads legitimately repeat a question; `ReplyContext.WindowHistory` is the
+  bounded list, the prompt still gets the full 20 turns.
+- **The page and its total come from one SQL statement.** They used to be two, and under
+  READ COMMITTED each statement sees its own snapshot: a handoff committing between them
+  returned `items: []` with `total: 1`. A parallel test run caught it. `contactName` is
+  typed non-nullable for the same reason the frontend asked about it — `display_name` is
+  NOT NULL and the join is inner.
 - **`lastMessagePreview` in a queue item is almost always our own handoff sentence**, not
   the customer's last words, because it is B03's "last message in either direction" and
   the handoff sentence is sent right after. Found capturing a real item against Neon. Left
