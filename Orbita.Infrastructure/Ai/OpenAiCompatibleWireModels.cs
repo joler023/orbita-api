@@ -173,8 +173,12 @@ internal sealed class OpenAiEmbeddingRequest
     [JsonPropertyName("model")]
     public required string Model { get; init; }
 
+    /// <summary>
+    /// Always an array, even for one text: the endpoint accepts both, and sending the
+    /// same shape either way means the batch path and the single path cannot drift.
+    /// </summary>
     [JsonPropertyName("input")]
-    public required string Input { get; init; }
+    public required IReadOnlyList<string> Input { get; init; }
 }
 
 internal sealed class OpenAiEmbeddingResponse
@@ -193,4 +197,12 @@ internal sealed class OpenAiEmbeddingData
 {
     [JsonPropertyName("embedding")]
     public IReadOnlyList<float>? Embedding { get; init; }
+
+    /// <summary>
+    /// Which input this vector belongs to. The spec does not promise the array comes back
+    /// in order, and a batch lined up by position would silently attach every chunk's text
+    /// to another chunk's vector — a corpus that looks indexed and answers nonsense.
+    /// </summary>
+    [JsonPropertyName("index")]
+    public int Index { get; init; }
 }

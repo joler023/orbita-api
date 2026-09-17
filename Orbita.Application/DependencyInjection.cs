@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IOutboxDispatchService, OutboxDispatchService>();
         services.AddScoped<IOutboundMessageService, OutboundMessageService>();
+        services.AddScoped<IConversationHandoffService, ConversationHandoffService>();
         services.AddScoped<IOutboundMessageDispatchService, OutboundMessageDispatchService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IMessageTemplateService, MessageTemplateService>();
@@ -65,8 +66,10 @@ public static class DependencyInjection
         services.AddScoped<IRoutingService, RoutingService>();
         services.AddScoped<IAgentAnswerCache, AgentAnswerCache>();
         services.AddScoped<ISemanticCacheService, SemanticCacheService>();
+        services.AddScoped<IAgentTestCaseService, AgentTestCaseService>();
         services.AddScoped<IAgentConversationResponder, AgentConversationResponder>();
         services.AddScoped<IIntegrationEventHandler, AgentReplyIntegrationHandler>();
+        services.AddScoped<IIntegrationEventHandler, HandoffSummaryIntegrationHandler>();
 
         return services;
     }

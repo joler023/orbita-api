@@ -30,16 +30,17 @@ public static class AgentPromptBuilder
     /// string this backend produces. That is not cosmetic: a prompt written in voseo
     /// teaches the model to answer in voseo, to every customer of every tenant.
     ///
-    /// The handoff rule tells the model to <b>point</b> the customer at the team, never
-    /// to offer to arrange it. ORB-C04's criterion is "ofrece pasar a un humano", and an
-    /// instruction like "offer to put them through" satisfies it on the first turn and
-    /// breaks on the second: the customer answers "sí, por favor", and there is nothing
-    /// to execute — ORB-C07 does not exist, <c>escalar_a_humano</c> is
-    /// <c>isAvailable: false</c>, there is no human queue. The model would then invent
-    /// that it did it, stall, or repeat the offer, and the customer is left waiting for
-    /// something nobody was told about. Pointing closes no loop the product cannot close,
-    /// and it is the same thing ORB-C06's out-of-scope default says. When C07 lands, both
-    /// can promise the handoff again, together.
+    /// <para><b>The handoff rule changed with ORB-C07, and the reason it used to say the
+    /// opposite is worth keeping.</b> It told the model to <b>point</b> the customer at
+    /// the team and never to offer to arrange it, because an offer satisfies ORB-C04's
+    /// "ofrece pasar a un humano" on the first turn and breaks on the second: the customer
+    /// answers "sí, por favor" and there was nothing to execute — no queue,
+    /// <c>escalar_a_humano</c> unavailable — so the model would invent that it had done
+    /// it, stall, or repeat the offer. Now there is a queue and a tool that puts the
+    /// conversation in it, so the promise is one the product keeps. What the rule still
+    /// refuses to promise is a <em>reply</em>: the conversation being waiting for a person
+    /// is a fact, "alguien te escribe en un momento" depends on somebody being there, and
+    /// ORB-B15 has not assigned anyone.</para>
     /// </summary>
     public const string ConversationRules =
         "Estás respondiendo por chat a un cliente real del negocio.\n"
@@ -47,9 +48,13 @@ public static class AgentPromptBuilder
         + "te trate: si te habla de tú, de vos o de usted, respóndele igual.\n"
         + "- Usa solo la información de los documentos del negocio y de esta conversación. "
         + "No inventes precios, horarios, plazos ni políticas.\n"
-        + "- Si no tienes la información para responder, dilo con naturalidad e invítalo a "
-        + "escribirle al equipo, que con gusto lo ayuda. Nunca digas que vas a avisarle a "
-        + "alguien ni que alguien le va a escribir: no puedes hacer ninguna de las dos.\n"
+        + "- Si no tienes la información para responder, o el cliente pide hablar con una "
+        + "persona, usa la herramienta escalar_a_humano si la tienes disponible y luego "
+        + "despídete brevemente. Si no la tienes, dilo con naturalidad e invítalo a "
+        + "escribirle al equipo.\n"
+        + "- Puedes decir que dejas la conversación con el equipo, porque es cierto. Nunca "
+        + "prometas cuándo le responden ni digas que alguien le va a escribir enseguida: "
+        + "eso no lo controlas.\n"
         + "- Escribe como en un chat: breve y directo, sin encabezados ni listas largas.";
 
     /// <summary>

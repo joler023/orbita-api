@@ -14,7 +14,7 @@ public sealed class AgentGuardrailsTests
     private static AiAgent AgentBlocking(params string[] topics)
     {
         var agent = AiAgent.Create(Guid.NewGuid(), "Asistente", "Amable.", "Ayuda.", AgentStyle.Default, Now);
-        agent.SetGuardrails(topics, AiAgent.DefaultOutOfScopeReply);
+        agent.SetGuardrails(topics, AiAgent.DefaultOutOfScopeReply, AiAgent.DefaultHandoffReply);
 
         return agent;
     }
@@ -62,7 +62,7 @@ public sealed class AgentGuardrailsTests
         var agent = AiAgent.Create(Guid.NewGuid(), "Asistente", "Amable.", "Ayuda.", AgentStyle.Default, Now);
         var topics = Enumerable.Range(0, AiAgent.MaxBlockedTopics + 1).Select(i => $"tema{i}").ToList();
 
-        Assert.Throws<ArgumentException>(() => agent.SetGuardrails(topics, AiAgent.DefaultOutOfScopeReply));
+        Assert.Throws<ArgumentException>(() => agent.SetGuardrails(topics, AiAgent.DefaultOutOfScopeReply, AiAgent.DefaultHandoffReply));
     }
 
     [Fact]

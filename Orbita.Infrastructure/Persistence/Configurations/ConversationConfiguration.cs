@@ -30,9 +30,22 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
         builder.Property(c => c.ClosedAt).HasColumnName("closed_at");
         builder.Property(c => c.CreatedAt).HasColumnName("created_at").IsRequired();
 
+        // ORB-C07. Not in orbita-schema.dbml, same class of addition as
+        // last_message_preview.
+        builder.Property(c => c.HandoffRequestedAt).HasColumnName("handoff_requested_at");
+        builder.Property(c => c.HandoffReason).HasColumnName("handoff_reason").HasConversion<string>().HasMaxLength(30);
+        builder.Property(c => c.HandoffSummary).HasColumnName("handoff_summary").HasMaxLength(Conversation.HandoffSummaryMaxLength);
+
         builder.HasIndex(c => new { c.TenantId, c.Status, c.LastMessageAt }).HasDatabaseName("ix_conv_inbox");
         builder.HasIndex(c => new { c.TenantId, c.AssigneeId, c.Status });
         builder.HasIndex(c => c.ContactId);
+
+        // The handoff queue's own index: tenant first like every other one here, then the
+        // wait start, which is both the filter (not null) and the order (oldest first).
+        builder
+            .HasIndex(c => new { c.TenantId, c.HandoffRequestedAt })
+            .HasDatabaseName("ix_conv_handoff_queue")
+            .HasFilter("handoff_requested_at IS NOT NULL");
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Contact>().WithMany().HasForeignKey(c => c.ContactId).OnDelete(DeleteBehavior.Cascade);

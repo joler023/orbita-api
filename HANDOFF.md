@@ -6,6 +6,56 @@ Para las reglas de arquitectura/negocio vinculantes (que no cambian historia a h
 
 ## Última actualización
 
+**2026-09-16 (4)** — **Se midieron los tres criterios de Track C que nunca se habían medido. Ninguno se cumplía; dos quedaron cumplidos.** Suite: **644 unitarias + 286 de integración, cero fallos**, corrida en un contenedor Linux (ver "Rarezas de la máquina").
+
+| Criterio | Antes | Ahora | Qué cambió |
+|---|---|---|---|
+| `ORB-C03`: búsqueda < 200 ms con 100.000 fragmentos | 650 ms | **1,4 ms** | La consulta usa el índice HNSW (`fix/semantic-search-hnsw`) |
+| `ORB-C02`: 50 páginas < 2 min | 600 s | **25,1 s** | Embeddings en lote, no uno por trozo (`fix/batch-knowledge-embeddings`) |
+| `ORB-C04`: respuesta p95 < 6 s | — | **14,2 s, no cumple** | El p95 del modelo ya es 8–9 s: decisión de producto, no de código |
+
+Encontrado sin buscarlo, y corregido:
+
+- **El seed gastaba plata** (`fix/seed-outbox-published`): dejaba el 5 % de los eventos del outbox sin publicar y el asistente respondía mensajes históricos al arrancar la app. Si una base se sembró con la versión anterior, **publicar esos eventos a mano** antes de levantar la app: `UPDATE outbox_events SET published_at = occurred_at WHERE published_at IS NULL AND event_type = 'message.received';` (como dueño, sobre una base recién sembrada).
+- **La cola de traspasos podía devolver `items: []` con `total: 1`**: dos sentencias con instantáneas distintas. Ahora es una sola consulta.
+- **La detección de frustración por repetición miraba toda la vida de la conversación.** Ahora solo la ventana de 24 h.
+
+**Hay otra instancia de la API consumiendo las colas de Neon, fuera de esta máquina.** Probado: con la API local apagada, un evento devuelto a `Pending` se procesó en 1,5 s. Se lleva eventos y los publica sin responder (8 de 20 mensajes quedaron sin contestar en una prueba). Hay que averiguar de quién es: mientras exista, cualquier prueba del asistente contra Neon da resultados falsos.
+
+**`ORB-C13` ajustado a pedido del frontend** (`feature/c13-owner-only-models`): elegir modelos es solo del dueño (`ManageAiModels`), y `GET /api/ai-providers` dice qué va en `{providerName}`.
+
+**Datos de prueba que quedaron en Neon** (tenant La Espiga): contactos "Cliente E2E Traspaso", "Cliente E2E Traspaso 2" (su conversación sigue en la cola a propósito, para que el front verifique la forma) y "Cliente E2E Normal", más 20 contactos "Latencia base1 NN". Los de la base aislada local (contenedor `orbita-latency-pg`) se borran con el contenedor.
+
+**2026-09-16 (3)** — **`ORB-C07` (traspaso a humano) implementada. Con esto Track C no tiene historias abiertas.** Suite completa: **631 unitarias + 281 de integración, cero fallos**; `dotnet format --verify-no-changes` limpio. Rama `feature/c07-human-handoff`.
+
+**Estaba mal etiquetada como bloqueada por `ORB-B15`.** B15 responde "¿cuál de mis compañeros atiende esta conversación?"; C07 responde "¿esta conversación sigue siendo del asistente?". Para dejar de mentirle a un cliente que pide una persona solo hace falta la segunda: una cola de conversaciones esperando a *alguien*. La cola es de Track C; elegir a quién le toca sigue siendo B15. Ver `CLAUDE.md`, "Traspaso a humano (ORB-C07)", para las decisiones.
+
+Lo que quedó:
+
+- Cuatro disparadores: el cliente lo pide, se nota frustrado (frases + el mismo mensaje tres veces), tema bloqueado (C06), o el asistente se rinde (herramienta `escalar_a_humano`, bucle, ventana agotada, respuesta vacía o inválida). Los dos primeros no gastan llamada al modelo.
+- `GET /api/tenants/{t}/handoffs` → `{ items, nextCursor, total }`, espera más antigua primero. `POST .../conversations/{id}/return-to-assistant` devuelve la conversación al asistente.
+- Una vez traspasada, el asistente no vuelve a contestar aunque el cliente siga escribiendo (`Conversation.RegisterInbound` ya no reabre una conversación en cola).
+- Resumen escrito **después** del traspaso, reaccionando al evento del outbox (llamada barata, `LlmTask.Classify`). Si el proveedor está caído, el traspaso ya está hecho y el resumen se reintenta con backoff. `ai_runs.was_handoff` por fin se escribe.
+- **Medido contra Neon con los modelos reales, no supuesto.** La primera versión escribía el resumen dentro del traspaso y el cliente que pedía una persona esperaba **13,8 s** la frase de traspaso, contra **6,6 s** de una respuesta normal. Se movió el resumen fuera de su camino (commit `fix: write the handoff summary off the customer's path`). El resumen de prueba real salió en español y fiel a lo que dijo el cliente, por USD 0,00004.
+- `escalar_a_humano` pasa a `isAvailable: true`, `resultsIn: "inbox"`. Nuevo permiso `ViewInbox` (los cuatro roles). `handoffReply` nuevo y **opcional** en `PUT .../guardrails`.
+- Migración `AddConversationHandoff` (tres columnas en `conversations`, `was_handoff` en `ai_runs`, `handoff_reply` en `ai_agents`).
+
+**El contrato se cerró con el frontend antes de terminarlo**, y cambió tres cosas: la cola pagina con cursor y trae `total` (un tope silencioso de 50 esconde al cliente 51 justo el peor día), `handoffReply` es opcional (obligatorio habría roto su pantalla de límites), y no hay empujón por SignalR porque el frontend no tiene cliente de SignalR (verificado en su repo). La prueba de paginación destapó un bug real: el cursor en milisegundos repetía la última fila en orden ascendente; ahora va en ticks.
+
+**Deuda conocida:** "se notifica en vivo" es el evento `conversation.handoff_requested` del outbox, no un WebSocket — eso es `ORB-B14`. La pantalla de la cola no tiene dueño decidido (el frontend no toca la bandeja de Track B sin que su humano lo decida).
+
+**Rareza de la máquina, otra vez, y esta vez con solución estable:** Smart App Control bloqueó los binarios recién compilados (Debug primero; `-c Release` lo esquivó un rato y luego también se bloqueó, igual que una configuración inventada). Lo que funciona siempre es **correr la suite dentro de un contenedor Linux del SDK**, donde SAC no existe y Testcontainers usa el Docker del host por el socket — ver "Correr las pruebas cuando Smart App Control bloquea" en `README.md`. No desactivar SAC.
+
+**2026-09-16 (2)** — Dos cosas, ninguna historia nueva.
+
+**El stack de Track C ya no está sin mergear.** Las PRs `#33` a `#42` (todo lo de la Épica C2 más los fixes de base) ya están en `develop` — se mergearon después de que se escribiera la entrada de abajo, y ni `HANDOFF.md` ni `local/checklist-track-c.md` se habían actualizado para reflejarlo. Solo queda abierta `#45` (`feature/c11-test-cases`), retargeteada de `feature/c12-semantic-cache` (ya mergeada, huérfana) a `develop`.
+
+Al rebasar `feature/c11-test-cases` sobre `origin/develop` para retargetear la PR, salió un cabo suelto real: el commit que agrega `businessHours` a `AiAgentDto` (`ORB-C08`, ver "Corrección del 2026-09-16 (tarde)" en `CLAUDE.md`) se había comiteado en `feature/c08-router` **después** de que la PR `#41` ya estuviera mergeada, y nadie abrió una PR de seguimiento — `develop` respondía el agente sin ese campo pese a que `CLAUDE.md` documenta que sí se devuelve. El rebase (sin conflictos) lo trae de vuelta a la línea principal en cuanto se mergee `#45`. Suite completa contra el resultado del rebase: **585 unitarias + 273 de integración, cero fallos**.
+
+**500 intermitente en el login (ver la entrada de abajo, "Lo que quedó a medias"): logging y 503 ya están.** Se aplicó el parche que había quedado guardado (`local/pendiente-500-logging-y-503.patch`, ya borrado): `GlobalExceptionHandler` ahora loguea toda excepción 5xx con su stack trace completo, y un `DbException` transitorio responde **503** en vez de 500. Cuatro pruebas nuevas (`GlobalExceptionHandlerTests`) fijan el mapeo y el nivel de log, sin necesitar Postgres real. **La hipótesis de la conexión inactiva de Neon sigue sin confirmar**: se levantó la API contra Neon, se logueó, se esperaron 7 minutos idle y se volvió a loguear — `200 OK` las dos veces, no reprodujo. Es esperable: el front ya lo reportó como intermitente (2 fallos en la misma hora que tuvo 25 logins seguidos exitosos), así que un solo intento sin reproducir no descarta la hipótesis. Con el logging ya en pie, el próximo 500 real en cualquier entorno va a dejar el mensaje de la excepción en el log — eso es lo que hacía falta para dejar de adivinar. No se tocó el pool de conexiones ni se agregó `EnableRetryOnFailure`: seguía sin haber evidencia de la causa real, que era la condición explícita para no hacerlo.
+
+### Antes de esto
+
 **2026-09-16** — **Épica C2 completa: `ORB-C04`, `C05`, `C06`, `C08`, `C09` y `C12` implementadas, probadas y verificadas con los modelos reales contra Neon.** La suite entera está en verde: **573 unitarias + 263 de integración, cero fallos**, y `dotnet format --verify-no-changes` limpio.
 
 Lo que quedó funcionando de punta a punta (webhook firmado → cola → worker → outbox → asistente → cola de salida), comprobado contra Neon con OpenRouter de verdad:
@@ -158,10 +208,10 @@ Track B (Canales y Bandeja — Desarrollador 2), en orden de ejecución acordado
 Track C (Agentes de IA — foco actual):
 
 - [x] `ORB-C01` Abstracción de proveedor de modelos
-- [x] `ORB-C02` Base de conocimiento — el criterio "50 páginas en menos de 2 minutos" **sin medir**, necesita un modelo real conectado
-- [x] `ORB-C03` Búsqueda semántica — el criterio "200 ms con 100.000 fragmentos" **sin medir**, y con un límite conocido del índice (ver abajo)
+- [x] `ORB-C02` Base de conocimiento — «50 páginas en menos de 2 minutos» **medido: 25,1 s** (antes 600 s; embeddings en lote)
+- [x] `ORB-C03` Búsqueda semántica — «200 ms con 100.000 fragmentos» **medido: 1,4 ms** (antes 650 ms; la consulta ahora usa el índice HNSW)
 - [x] `ORB-C10` Constructor de agentes — solo el backend; las pantallas 2.5–2.8 son del frontend
-- [x] `ORB-C11` Banco de pruebas — las trazas de 4 de las 5 herramientas esperan a `ORB-D05`/`ORB-B03`
+- [x] `ORB-C11` Banco de pruebas — completo: los casos de prueba guardados (`agent_test_cases`) cerraron el criterio que faltaba
 - [x] `ORB-C13` Selección de modelo por tarea
 - [x] `ORB-C12` Caché semántico — apagada por defecto; se enciende con un umbral por asistente
 - [x] `ORB-C04` El agente responde — verificado con modelos reales contra Neon
@@ -169,7 +219,7 @@ Track C (Agentes de IA — foco actual):
 - [x] `ORB-C06` Guardrails — temas bloqueados, límite de respuestas por ventana, bucles, y revisión de la respuesta
 - [x] `ORB-C08` Enrutador — reglas ordenadas por tenant y horario de atención por asistente
 - [x] `ORB-C09` Consumo de IA — `tools_called` y `retrieved_chunk_ids` en `ai_runs`; la facturación es `ORB-A13`, que no existe
-- [ ] `ORB-C07` Traspaso a humano — **bloqueada por `ORB-B15`** (asignación a personas): sin cola humana, prometerle un traspaso al cliente sería mentirle
+- [x] `ORB-C07` Traspaso a humano — cola de conversaciones esperando a una persona, con resumen; el aviso en vivo es el evento del outbox (el WebSocket es `ORB-B14`) y asignar a alguien concreto sigue siendo `ORB-B15`
 
 ## Decisiones que ya se tomaron (no reabrir sin motivo)
 
@@ -206,8 +256,8 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-A12`: ni Stripe ni Wompi tienen credenciales reales conectadas**, y Wompi todavía no tiene forma de cobrar de manera recurrente (no existe el scheduler). Ver la sección "Billing" de `CLAUDE.md`.
 - **`ORB-A11`: política de MFA de tenant sin aplicar** — el flag existe y se puede configurar, pero ningún login lo respeta todavía (misma causa raíz que el JWT sin claim de tenant).
 - **`ORB-A15`: la bitácora solo cubre cambios de rol y remoción de miembros por ahora** — es el patrón de referencia, no una cobertura exhaustiva. Engancharla a más acciones sensibles (facturación, configuración de tenant, etc.) es trabajo incremental de una línea por caso, no una historia nueva.
-- **OpenRouter ya tiene saldo (USD 5) y está verificado de punta a punta**: responden tanto la generación (`deepseek/deepseek-v4-flash`) como los embeddings (`openai/text-embedding-3-small`, 1536 dimensiones, que es exactamente lo que espera `KnowledgeChunk.EmbeddingDimensions`). Con esto quedan *medibles* los dos criterios de aceptación que estaban sin medir: el «50 páginas en menos de 2 minutos» de `ORB-C02` y el «200 ms con 100.000 fragmentos» de `ORB-C03`. Siguen sin medirse. Las pruebas automáticas siguen usando un embebedor falso determinista a propósito — una suite que gaste dinero por correrse no es una suite.
-- **El índice HNSW no se usa hoy.** Al filtrar por `tenant_id`, Postgres prefiere filtrar por tenant y ordenar los sobrevivientes — correcto mientras el corpus de un cliente sea chico, y no cuando sean decenas de miles de fragmentos **por tenant**. Opciones documentadas en la migración `AddKnowledgeChunkHnswIndex`.
+- **OpenRouter ya tiene saldo (USD 5) y está verificado de punta a punta**: responden tanto la generación (`deepseek/deepseek-v4-flash`) como los embeddings (`openai/text-embedding-3-small`, 1536 dimensiones, que es exactamente lo que espera `KnowledgeChunk.EmbeddingDimensions`). Los criterios de `ORB-C02` y `ORB-C03` ya están medidos y se cumplen (ver la entrada del 2026-09-16 (4)). Las pruebas automáticas siguen usando un embebedor falso determinista a propósito — una suite que gaste dinero por correrse no es una suite.
+- **El índice HNSW se usa desde el 2026-09-16**, gracias a filtrar por `doc_id IN (…)` en vez de un `JOIN` más `hnsw.iterative_scan = strict_order`. No volver a escribir la búsqueda con un `JOIN`: es la versión de 650 ms. Ver `CLAUDE.md`, "Criterios de aceptación medidos".
 - **Riesgo de conflicto al mergear Track C.** Sus ramas tocan seis archivos compartidos con Track B/D: `Permission.cs`, `RolePermissions.cs`, `OrbitaDbContext.cs`, los dos `DependencyInjection.cs` y `GlobalExceptionHandler.cs`. Ya pasó con `ORB-A15` (claves duplicadas que compilaban y reventaban en runtime); conviene avisar al equipo antes de mergear.
 - **`orbita-front` sigue en scaffold** — no hay cliente HTTP ni pantallas reales todavía, así que ningún endpoint de este repo tiene todavía un consumidor real más allá de las pruebas de integración.
 - **`ORB-B01`: sin app de Meta real** — `Channels:Meta:*` está vacío; los clientes de Graph API (`MetaAuthClient`, `WhatsAppCloudApiClient`) nunca han hablado con Meta de verdad. Crear la app en Meta for Developers (producto WhatsApp) y arrancar el App Review para Instagram cuanto antes: es un plazo externo que no controlamos.
@@ -217,4 +267,4 @@ Estas están documentadas con más detalle en `CLAUDE.md`, se listan aquí para 
 - **`ORB-B03`: `TenantIsolationTests` no se extendió** para conversations/messages (el mecanismo de RLS ya está probado por otras tablas). Falta un test determinístico de fallo repetido del worker (`WorkerFailure_ThreeTimes_MarksDead` del plan original) — `InboundMessageFlowTests` usa polling con `Eventually` en vez de un adapter fake inyectado por `WithWebHostBuilder`.
 - **B01-B08 y la épica C2 ya corrieron de verdad**: la suite completa está en verde contra Postgres real (Testcontainers) y el flujo entrante→respuesta se verificó contra Neon con los modelos reales. Lo que sigue sin probarse contra Meta de verdad es el envío saliente: **no hay app de Meta**, así que `WhatsAppCloudApiClient` nunca ha hablado con Graph API — los mensajes salen encolados y el despachador falla contra el fake. Crear la app de Meta sigue siendo el plazo externo más largo.
 - **`ORB-C12`: no hay limpieza de `agent_answer_cache`.** Una entrada cuya huella ya no coincide no se devuelve nunca más, pero tampoco se borra: es peso muerto, no un riesgo de corrección. Hace falta un job de retención antes de volumen real, igual que para `outbox_events`.
-- **La latencia p95 de `ORB-C04` (menos de 6 segundos) sigue sin medirse.** `ai_runs.latency_ms` es donde está el dato; en las corridas reales las llamadas de generación fueron de 2 a 5 segundos, pero nadie lo está midiendo de forma continua.
+- **La latencia p95 de `ORB-C04` (menos de 6 segundos) está medida y NO se cumple: p95 14,2 s** (10,1 s con el modelo económico). El p95 del propio modelo ya es 8–9 s, así que no se arregla en este código: es una decisión de producto (proveedor/modelo más rápido para `Draft`, prompt más chico, o cambiar el criterio).

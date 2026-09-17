@@ -18,6 +18,14 @@ public sealed class DocumentChunkBuilder(
     IKnowledgeChunkRepository chunkRepository,
     IUnitOfWork unitOfWork) : IDocumentChunkBuilder
 {
+    /// <summary>
+    /// How many chunks go into one embedding call. OpenAI's endpoint accepts far more,
+    /// but a batch is also the unit that is retried and the unit whose failure loses work,
+    /// and 64 chunks is already ~75.000 characters — a whole document for most uploads,
+    /// one round trip for a 50-page one.
+    /// </summary>
+    public const int EmbeddingBatchSize = 64;
+
     public async Task<int> BuildAsync(KnowledgeDocument document, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -46,21 +54,30 @@ public sealed class DocumentChunkBuilder(
 
         var chunks = new List<KnowledgeChunk>(pieces.Count);
 
-        foreach (var piece in pieces)
+        // In batches, not one by one. Measured against the real provider, a 50-page
+        // document embedded chunk by chunk took 712 s — ORB-C02 asks for under 120 —
+        // because 62 sequential calls averaged 4,5 s each and one took 129 s on its own.
+        // The tokens are the same either way; what disappears is the queueing.
+        foreach (var batch in pieces.Chunk(EmbeddingBatchSize))
         {
-            var embedding = await llmProvider.EmbedAsync(piece.Content, document.TenantId, cancellationToken);
+            var embeddings = await llmProvider.EmbedBatchAsync(
+                [.. batch.Select(piece => piece.Content)], document.TenantId, cancellationToken);
 
-            // Staged, not saved: the indexer's SaveChangesAsync commits the run alongside
-            // the chunk it paid for (ORB-A15's IAuditLogger pattern).
-            runRecorder.Record(document.TenantId, document.AgentId, embedding.Usage);
+            // One run per call, because one call is what the provider bills — the same
+            // rule ORB-C09 applies to a tool loop's rounds. Staged, not saved: the
+            // indexer's SaveChangesAsync commits it alongside the chunks it paid for.
+            runRecorder.Record(document.TenantId, document.AgentId, embeddings.Usage);
 
-            chunks.Add(KnowledgeChunk.Create(
-                document.TenantId,
-                document.Id,
-                piece.Index,
-                piece.Content,
-                piece.EstimatedTokens,
-                embedding.Vector));
+            for (var i = 0; i < batch.Length; i++)
+            {
+                chunks.Add(KnowledgeChunk.Create(
+                    document.TenantId,
+                    document.Id,
+                    batch[i].Index,
+                    batch[i].Content,
+                    batch[i].EstimatedTokens,
+                    embeddings.Vectors[i]));
+            }
         }
 
         chunkRepository.AddRange(chunks);

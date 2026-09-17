@@ -16,3 +16,20 @@ namespace Orbita.Application.Ai;
 public sealed record LlmEmbeddingResult(
     IReadOnlyList<float> Vector,
     LlmUsage Usage);
+
+/// <summary>
+/// Several texts embedded in one call.
+/// </summary>
+/// <param name="Vectors">
+/// One per input, <b>in the order the inputs were given</b>. Callers line them up with
+/// their own chunks by position, so a provider that returns them out of order has to be
+/// reordered before it gets here — which is exactly what the OpenAI-compatible adapter
+/// does with the response's <c>index</c> field.
+/// </param>
+/// <param name="Usage">
+/// What the whole call cost, not one text's share. It is recorded as a single
+/// <c>ai_runs</c> row for the same reason: one call is what was billed.
+/// </param>
+public sealed record LlmEmbeddingBatchResult(
+    IReadOnlyList<IReadOnlyList<float>> Vectors,
+    LlmUsage Usage);

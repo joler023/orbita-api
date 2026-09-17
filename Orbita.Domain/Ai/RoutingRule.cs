@@ -66,14 +66,14 @@ public sealed class RoutingRule : Entity
 
         if (name.Trim().Length > NameMaxLength)
         {
-            throw new ArgumentException($"A rule name must be at most {NameMaxLength} characters.", nameof(name));
+            throw new ArgumentException($"El nombre de la regla no puede pasar de {NameMaxLength} caracteres.", nameof(name));
         }
 
         var trimmedKeyword = string.IsNullOrWhiteSpace(keyword) ? null : keyword.Trim();
 
         if (trimmedKeyword?.Length > KeywordMaxLength)
         {
-            throw new ArgumentException($"A keyword must be at most {KeywordMaxLength} characters.", nameof(keyword));
+            throw new ArgumentException($"La palabra clave no puede pasar de {KeywordMaxLength} caracteres.", nameof(keyword));
         }
 
         return new RoutingRule(Guid.NewGuid(), tenantId, position, name.Trim(), channel, trimmedKeyword, agentId, now);

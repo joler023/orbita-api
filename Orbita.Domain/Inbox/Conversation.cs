@@ -13,6 +13,12 @@ public sealed class Conversation : Entity
 {
     public const int LastMessagePreviewMaxLength = 140;
 
+    /// <summary>
+    /// Long enough for a few sentences of context and short enough that nobody treats it
+    /// as a transcript — the messages themselves are right there for whoever wants them.
+    /// </summary>
+    public const int HandoffSummaryMaxLength = 600;
+
     /// <summary>Meta's WhatsApp customer-service window.</summary>
     public static readonly TimeSpan ServiceWindow = TimeSpan.FromHours(24);
 
@@ -66,6 +72,34 @@ public sealed class Conversation : Entity
 
     public DateTimeOffset CreatedAt { get; }
 
+    /// <summary>
+    /// When this conversation was handed to a person (ORB-C07); null means the assistant
+    /// still has it. Not in orbita-schema.dbml, same class of addition as
+    /// <see cref="LastMessagePreview"/>.
+    ///
+    /// It exists as its own column rather than being inferred from
+    /// <see cref="ConversationStatus.Pending"/> because the two answer different questions.
+    /// Status says where the thread is in the inbox and changes for ordinary reasons — the
+    /// next inbound message reopens a Pending thread, which is right for a thread nobody
+    /// got to and wrong for one a person was asked to take over. This is what makes a
+    /// handoff stick until a human undoes it.
+    /// </summary>
+    public DateTimeOffset? HandoffRequestedAt { get; private set; }
+
+    /// <summary>Why it was handed over. Null exactly when <see cref="HandoffRequestedAt"/> is.</summary>
+    public HandoffReason? HandoffReason { get; private set; }
+
+    /// <summary>
+    /// What the person taking over needs to know, written once at the moment of the
+    /// handoff. Null when the summary could not be produced — a model outage must not stop
+    /// a customer from reaching a person, so a handoff without its summary is a handoff,
+    /// not a failure.
+    /// </summary>
+    public string? HandoffSummary { get; private set; }
+
+    /// <summary>Whether a person, and not the assistant, owns this conversation right now.</summary>
+    public bool IsWaitingForHuman => HandoffRequestedAt is not null;
+
     public static Conversation Open(Guid tenantId, Guid contactId, Guid channelAccountId, DateTimeOffset now)
     {
         if (tenantId == Guid.Empty)
@@ -76,10 +110,21 @@ public sealed class Conversation : Entity
         return new Conversation(Guid.NewGuid(), tenantId, contactId, channelAccountId, ConversationStatus.Open, now);
     }
 
-    /// <summary>Reopens if idle (Closed/Pending/Snoozed), refreshes the service window, and bumps the unread count.</summary>
+    /// <summary>
+    /// Reopens if idle (Closed/Pending/Snoozed), refreshes the service window, and bumps
+    /// the unread count.
+    ///
+    /// A conversation waiting for a person is the one case that does not reopen: reopening
+    /// it would flip it back to <see cref="ConversationStatus.Open"/> and hand it to the
+    /// assistant again on the customer's very next message, which is precisely what
+    /// ORB-C07's last criterion forbids ("una vez traspasada, el agente no vuelve a
+    /// intervenir salvo que un humano lo reactive"). Everything else still happens: the
+    /// window is refreshed and the message counts as unread, because a person does have to
+    /// read it.
+    /// </summary>
     public void RegisterInbound(DateTimeOffset now, string? preview)
     {
-        if (Status is ConversationStatus.Closed or ConversationStatus.Pending or ConversationStatus.Snoozed)
+        if (!IsWaitingForHuman && Status is ConversationStatus.Closed or ConversationStatus.Pending or ConversationStatus.Snoozed)
         {
             Status = ConversationStatus.Open;
             ClosedAt = null;
@@ -128,6 +173,79 @@ public sealed class Conversation : Entity
         AiAgentId ??= agentId;
     }
 
+    /// <summary>
+    /// Hands the conversation to a person (ORB-C07): it leaves the assistant, lands in the
+    /// queue as <see cref="ConversationStatus.Pending"/>, and stays there until a human
+    /// gives it back through <see cref="ReturnToAssistant"/>.
+    ///
+    /// Idempotent, and the <em>first</em> reason wins rather than the last. A customer who
+    /// asks for a person and then, still waiting, writes three more angry messages has not
+    /// changed why they are in the queue — overwriting it would relabel "me pidieron un
+    /// humano" as "parecía molesto" and lose the only fact the person taking over can act
+    /// on. It also keeps <see cref="HandoffRequestedAt"/> honest as the moment the wait
+    /// started, which is what orders the queue.
+    ///
+    /// No assignee is set: this marks the conversation as needing a person, not as being
+    /// somebody's in particular. Choosing who takes it is ORB-B15.
+    /// </summary>
+    public void RequestHumanHandoff(HandoffReason reason, string? summary, DateTimeOffset now)
+    {
+        if (IsWaitingForHuman)
+        {
+            return;
+        }
+
+        HandoffRequestedAt = now;
+        HandoffReason = reason;
+        HandoffSummary = Truncate(summary, HandoffSummaryMaxLength);
+        Status = ConversationStatus.Pending;
+    }
+
+    /// <summary>
+    /// Adds the note for whoever takes over, after the handoff itself is already committed.
+    ///
+    /// Separate from <see cref="RequestHumanHandoff"/> because writing it costs a model
+    /// call of several seconds, and the customer who asked for a person must not wait for
+    /// a note written for somebody else. Only fills an empty one on a conversation still
+    /// waiting: a note the assistant wrote itself is not overwritten, and a conversation a
+    /// person already gave back does not need one.
+    /// </summary>
+    /// <returns>Whether the note was attached.</returns>
+    public bool AttachHandoffSummary(string summary)
+    {
+        if (!IsWaitingForHuman || HandoffSummary is not null || string.IsNullOrWhiteSpace(summary))
+        {
+            return false;
+        }
+
+        HandoffSummary = Truncate(summary.Trim(), HandoffSummaryMaxLength);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Gives the conversation back to the assistant — the "salvo que un humano lo
+    /// reactive" half of ORB-C07's last criterion, and the only way out of the queue.
+    ///
+    /// Idempotent for the same reason discarding a nonexistent draft is a 200: a
+    /// conversation the assistant already owns is the state the caller asked for. The
+    /// summary is cleared with the rest, because it described a handoff that is over; the
+    /// event that recorded it is what survives.
+    /// </summary>
+    public void ReturnToAssistant()
+    {
+        if (!IsWaitingForHuman)
+        {
+            return;
+        }
+
+        HandoffRequestedAt = null;
+        HandoffReason = null;
+        HandoffSummary = null;
+        Status = ConversationStatus.Open;
+        ClosedAt = null;
+    }
+
     public bool IsWindowOpen(DateTimeOffset now) => WindowExpiresAt is { } expiresAt && now < expiresAt;
 
     /// <summary>Whether a free-form (non-template) message can be sent right now. B11 extends this for Instagram's human_agent tag.</summary>
@@ -141,6 +259,6 @@ public sealed class Conversation : Entity
         ClosedAt = now;
     }
 
-    private static string? Truncate(string? preview)
-        => string.IsNullOrEmpty(preview) ? preview : preview[..Math.Min(preview.Length, LastMessagePreviewMaxLength)];
+    private static string? Truncate(string? text, int maxLength = LastMessagePreviewMaxLength)
+        => string.IsNullOrEmpty(text) ? text : text[..Math.Min(text.Length, maxLength)];
 }

@@ -215,11 +215,17 @@ public static class DependencyInjection
             client.Timeout = LlmRequestTimeout;
         });
 
-        services.AddScoped<ILlmProvider>(serviceProvider => new ResilientLlmProvider(
+        services.AddScoped<ILlmProvider>(serviceProvider => new ResilientLlmProvider(ProvidersInFailoverOrder(serviceProvider)));
+
+        // Built from the same list, so the catalog a screen reads (ORB-C13) is by
+        // construction the order a call actually tries.
+        services.AddScoped<ILlmProviderCatalog>(serviceProvider => new LlmProviderCatalog(ProvidersInFailoverOrder(serviceProvider)));
+
+        static ILlmProvider[] ProvidersInFailoverOrder(IServiceProvider serviceProvider) =>
         [
             serviceProvider.GetRequiredService<OpenAiCompatibleLlmProvider>(),
             serviceProvider.GetRequiredService<OllamaLlmProvider>(),
-        ]));
+        ];
     }
 
     /// <summary>Generation is slow; the default 100-second HttpClient timeout cuts long replies off.</summary>
@@ -240,6 +246,7 @@ public static class DependencyInjection
         services.AddScoped<ITenantModelPreferenceRepository, TenantModelPreferenceRepository>();
         services.AddScoped<IRoutingRuleRepository, RoutingRuleRepository>();
         services.AddScoped<IAgentAnswerCacheRepository, AgentAnswerCacheRepository>();
+        services.AddScoped<IAgentTestCaseRepository, AgentTestCaseRepository>();
         services.AddScoped<IKnowledgeIndexingQueue, KnowledgeIndexingQueue>();
 
         services.AddSingleton<ITextExtractor, PlainTextExtractor>();

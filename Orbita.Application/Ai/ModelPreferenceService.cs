@@ -19,7 +19,7 @@ public sealed class ModelPreferenceService(
         string providerName,
         CancellationToken cancellationToken)
     {
-        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiModels, cancellationToken);
 
         var overrides = await LoadAsync(tenantId, cancellationToken);
         var result = new List<ModelPreferenceDto>();
@@ -45,7 +45,7 @@ public sealed class ModelPreferenceService(
         string model,
         CancellationToken cancellationToken)
     {
-        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiModels, cancellationToken);
 
         var existing = (await LoadAsync(tenantId, cancellationToken))
             .SingleOrDefault(row => Matches(row, providerName, task));
@@ -75,7 +75,7 @@ public sealed class ModelPreferenceService(
         LlmTask task,
         CancellationToken cancellationToken)
     {
-        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
+        await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiModels, cancellationToken);
 
         var existing = (await LoadAsync(tenantId, cancellationToken))
             .SingleOrDefault(row => Matches(row, providerName, task));

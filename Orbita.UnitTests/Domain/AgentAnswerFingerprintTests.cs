@@ -52,7 +52,7 @@ public sealed class AgentAnswerFingerprintTests
         var agent = Agent();
         var before = AgentAnswerFingerprint.Compute(agent, 4, Now);
 
-        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply);
+        agent.SetGuardrails(["dosis"], AiAgent.DefaultOutOfScopeReply, AiAgent.DefaultHandoffReply);
 
         Assert.NotEqual(before, AgentAnswerFingerprint.Compute(agent, 4, Now));
     }

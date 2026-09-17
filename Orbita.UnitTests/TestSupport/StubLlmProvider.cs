@@ -60,6 +60,23 @@ internal sealed class StubLlmProvider(string name, params Func<LlmProviderExcept
         return Task.FromResult(new LlmEmbeddingResult([0.1f, 0.2f], UsageFor("stub-embed")));
     }
 
+    public Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        CallCount++;
+
+        if (NextOutcome() is { } failure)
+        {
+            throw failure;
+        }
+
+        return Task.FromResult(new LlmEmbeddingBatchResult(
+            [.. texts.Select(IReadOnlyList<float> (_) => [0.1f, 0.2f])],
+            UsageFor("stub-embed")));
+    }
+
     public async IAsyncEnumerable<LlmChunk> StreamAsync(
         LlmCompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)

@@ -64,6 +64,42 @@ public sealed class KnowledgeBaseApiTests(TenantsApiFixture fixture) : IClassFix
     }
 
     [Fact]
+    public async Task A_long_document_is_embedded_in_one_call_not_one_per_chunk()
+    {
+        // ORB-C02's "50 páginas en menos de 2 minutos", measured against the real provider,
+        // failed at 712 s: one embedding call per chunk, each averaging 4,5 s. The tokens
+        // are identical either way — what changes is how many times we wait. This pins the
+        // call count, because a loop that batches nothing would still pass every other
+        // assertion in this file.
+        var client = TestRequests.CreateClient(fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var agent = await GetSeededAgentAsync(tenantId);
+
+        var paragraph = string.Join(' ', Enumerable.Repeat("La panadería abre de lunes a sábado y los domingos hasta el mediodía.", 12));
+        var text = string.Join("\n\n", Enumerable.Repeat(paragraph, 40));
+
+        var accepted = await TestRequests.SendAsync(
+            client,
+            HttpMethod.Post,
+            $"/api/tenants/{tenantId}/ai-agents/{agent.Id}/knowledge/text",
+            cookies,
+            new { title = "Manual largo", text });
+        var document = (await accepted.Content.ReadFromJsonAsync<KnowledgeDocumentDto>(TestRequests.JsonOptions))!;
+
+        var callsBefore = fixture.Llm.EmbedCallCount;
+        await RunIndexerAsync();
+
+        var indexed = await GetDocumentAsync(client, cookies, tenantId, agent.Id, document.Id);
+        var calls = fixture.Llm.EmbedCallCount - callsBefore;
+
+        Assert.Equal(KnowledgeDocStatus.Indexed, indexed.Status);
+        Assert.True(indexed.ChunkCount > 5, $"Expected a document split into several chunks, got {indexed.ChunkCount}.");
+        Assert.True(
+            calls < indexed.ChunkCount,
+            $"Embedded {indexed.ChunkCount} chunks in {calls} calls — that is one per chunk, not a batch.");
+    }
+
+    [Fact]
     public async Task An_uploaded_markdown_file_is_indexed_the_same_way()
     {
         var client = TestRequests.CreateClient(fixture);

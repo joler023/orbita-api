@@ -44,6 +44,14 @@ public enum Permission
     /// <summary>Send outbound messages on a conversation (ORB-B05). Agents included.</summary>
     SendMessages,
 
+    /// <summary>
+    /// Read conversations — today, the queue of ones waiting for a person (ORB-C07).
+    /// Every role, like the other <c>View*</c> permissions: seeing who is waiting is not
+    /// a privilege, and a Viewer who cannot see the queue cannot tell anyone about it.
+    /// ORB-B12's inbox listing is the other reader this is meant for.
+    /// </summary>
+    ViewInbox,
+
     /// <summary>Register message templates locally and sync their approval status from Meta (ORB-B07).</summary>
     ManageTemplates,
 
@@ -54,4 +62,15 @@ public enum Permission
     /// a Viewer or an Agent changes.
     /// </summary>
     ManageAiAgents,
+
+    /// <summary>
+    /// Choose which model serves each task for this organization (ORB-C13).
+    /// <b>Owner only</b>, unlike <see cref="ManageAiAgents"/>, for the reason the frontend
+    /// argued when it asked for this: the choice changes what customers are answered with
+    /// <em>and what the organization is billed</em>, and the second half is what separates
+    /// it from configuring an assistant. An Admin can shape how the assistant speaks
+    /// without being able to raise the bill — the same line <see cref="ManageBilling"/>
+    /// already draws.
+    /// </summary>
+    ManageAiModels,
 }

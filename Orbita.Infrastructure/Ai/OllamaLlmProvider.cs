@@ -143,6 +143,45 @@ public sealed class OllamaLlmProvider(HttpClient httpClient, ILlmModelSelector m
                 FinishReason: null));
     }
 
+    /// <summary>
+    /// Ollama's <c>/api/embed</c> does take an array, but this adapter has never been run
+    /// against a configured instance (<c>BaseUrl</c> is empty in every environment today),
+    /// so it embeds one at a time and adds the cost up rather than shipping an untested
+    /// wire shape. The contract callers see is identical; only the round trips differ, and
+    /// a local Ollama has no network latency to save.
+    /// </summary>
+    public async Task<LlmEmbeddingBatchResult> EmbedBatchAsync(
+        IReadOnlyList<string> texts,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(texts);
+
+        if (texts.Count == 0)
+        {
+            throw new ArgumentException("There is nothing to embed.", nameof(texts));
+        }
+
+        var vectors = new List<IReadOnlyList<float>>(texts.Count);
+        var tokensIn = 0;
+        var latencyMs = 0;
+        var model = string.Empty;
+
+        foreach (var text in texts)
+        {
+            var single = await EmbedAsync(text, tenantId, cancellationToken);
+
+            vectors.Add(single.Vector);
+            tokensIn += single.Usage.TokensIn;
+            latencyMs += single.Usage.LatencyMs;
+            model = single.Usage.Model;
+        }
+
+        return new LlmEmbeddingBatchResult(
+            vectors,
+            new LlmUsage(model, tokensIn, TokensOut: 0, CostUsd: 0m, latencyMs, FinishReason: null));
+    }
+
     private static OllamaChatRequest BuildChatRequest(LlmCompletionRequest request, string model, bool stream)
         => new()
         {

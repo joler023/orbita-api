@@ -29,8 +29,22 @@ public sealed class KnowledgeChunkRepository(OrbitaDbContext dbContext) : IKnowl
     /// distance expression would parse fine and then quietly do a full scan, which is
     /// exactly the failure the 200 ms acceptance criterion is there to catch.
     ///
-    /// The join to <c>knowledge_docs</c> both supplies the document title for citation and
-    /// restricts results to one agent's material.
+    /// <para><b>The shape of this query is what makes the index usable, and it was measured.</b>
+    /// Written as a join to <c>knowledge_docs</c> for the agent filter, the planner never
+    /// chose the HNSW index: it walked <c>doc_id</c> and sorted the survivors, which is
+    /// correct and costs <b>650 ms with 100.000 chunks</b> — against ORB-C03's 200 ms
+    /// criterion. Filtering by <c>doc_id IN (…)</c> instead, and joining for the title
+    /// only after the limit, lets it scan the index: <b>1,4 ms</b> on the same corpus.
+    /// The debt note on <c>AddKnowledgeChunkHnswIndex</c> (and local/notas-entorno.md)
+    /// predicted this would bite "in the tens of thousands per tenant"; it does.</para>
+    ///
+    /// <para><c>hnsw.iterative_scan</c> is what keeps that fast plan <em>correct</em>. An
+    /// approximate index scan returns its own top-N and the agent filter is applied after,
+    /// so without it a search could come back with fewer than <c>limit</c> rows — or none,
+    /// if the nearest vectors all belong to another agent's documents. <c>strict_order</c>
+    /// keeps results ordered by real distance and makes the scan continue until enough
+    /// rows pass the filter. Needs pgvector 0.8+ (0.8.6 in the test image, the local
+    /// container and the managed database).</para>
     ///
     /// Distance is converted to similarity here (<c>1 - distance</c>) so callers get the
     /// "higher is better" number every UI expects.
@@ -44,20 +58,36 @@ public sealed class KnowledgeChunkRepository(OrbitaDbContext dbContext) : IKnowl
     {
         var query = new Vector(queryEmbedding.ToArray());
 
+        // Safe as SET LOCAL because the caller always runs this inside a tenant-scoped
+        // transaction — it has to, or Row Level Security would answer with no rows at all.
+        await dbContext.Database.ExecuteSqlRawAsync(
+            "SET LOCAL hnsw.iterative_scan = strict_order", cancellationToken);
+
         var rows = await dbContext.Database
             .SqlQuery<ChunkSearchRow>($"""
-                SELECT  c.id            AS "ChunkId",
-                        c.doc_id        AS "DocumentId",
+                WITH hit AS (
+                    SELECT  c.id          AS id,
+                            c.doc_id      AS doc_id,
+                            c.chunk_index AS chunk_index,
+                            c.content     AS content,
+                            1 - (c.embedding <=> {query}) AS score
+                    FROM    knowledge_chunks c
+                    WHERE   c.tenant_id = {tenantId}
+                      AND   c.doc_id IN (
+                                SELECT id FROM knowledge_docs
+                                WHERE tenant_id = {tenantId} AND agent_id = {agentId})
+                    ORDER BY c.embedding <=> {query}
+                    LIMIT   {limit}
+                )
+                SELECT  hit.id          AS "ChunkId",
+                        hit.doc_id      AS "DocumentId",
                         d.title         AS "DocumentTitle",
-                        c.chunk_index   AS "ChunkIndex",
-                        c.content       AS "Content",
-                        1 - (c.embedding <=> {query}) AS "Score"
-                FROM    knowledge_chunks c
-                JOIN    knowledge_docs   d ON d.id = c.doc_id
-                WHERE   c.tenant_id = {tenantId}
-                  AND   d.agent_id  = {agentId}
-                ORDER BY c.embedding <=> {query}
-                LIMIT   {limit}
+                        hit.chunk_index AS "ChunkIndex",
+                        hit.content     AS "Content",
+                        hit.score       AS "Score"
+                FROM    hit
+                JOIN    knowledge_docs d ON d.id = hit.doc_id
+                ORDER BY hit.score DESC
                 """)
             .ToListAsync(cancellationToken);
 

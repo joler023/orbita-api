@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Orbita.Application.Ai;
@@ -11,7 +12,9 @@ using Orbita.Application.Tenants;
 
 namespace Orbita.Api.ErrorHandling;
 
-public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
+public sealed class GlobalExceptionHandler(
+    IProblemDetailsService problemDetailsService,
+    ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -72,6 +75,9 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             AiAgentNotFoundException => (StatusCodes.Status404NotFound, "AI agent not found"),
             AgentHasHistoryException => (StatusCodes.Status409Conflict, "Assistant has history"),
             CannotDeleteLastAgentException => (StatusCodes.Status409Conflict, "Cannot delete last agent"),
+            // The title is the key the dashboard maps its copy by, so renaming it degrades
+            // that copy to the generic error in silence. AgentTestCasesApiTests pins it.
+            TooManyTestCasesException => (StatusCodes.Status409Conflict, "Too many test cases"),
             NothingToPublishException => (StatusCodes.Status409Conflict, "Nothing to publish"),
             KnowledgeDocumentNotFoundException => (StatusCodes.Status404NotFound, "Knowledge document not found"),
             UnsupportedDocumentTypeException => (StatusCodes.Status400BadRequest, "Unsupported document type"),
@@ -82,8 +88,25 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             // (ResilientLlmProvider). The caller can meaningfully retry.
             LlmProviderException => (StatusCodes.Status502BadGateway, "Model provider unavailable"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
+            // 503, not 500: a dropped connection or a database that went away is "try
+            // again", not "there is a bug here". Npgsql already classifies these
+            // (DbException.IsTransient), and the distinction is what tells an operator
+            // whether to look at the code or at the network.
+            DbException { IsTransient: true } => (StatusCodes.Status503ServiceUnavailable, "Database unavailable"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error"),
         };
+
+        // Nothing logged the exception before this: a 500 left the caller with "Unexpected
+        // error" and left the log with nothing to read, so the only evidence of a real
+        // failure was whatever EF happened to print on its way out.
+        logger.Log(
+            statusCode >= StatusCodes.Status500InternalServerError ? LogLevel.Error : LogLevel.Debug,
+            exception,
+            "{Method} {Path} failed with {StatusCode} ({Title}).",
+            httpContext.Request.Method,
+            httpContext.Request.Path.Value,
+            statusCode,
+            title);
 
         httpContext.Response.StatusCode = statusCode;
 
@@ -95,8 +118,21 @@ public sealed class GlobalExceptionHandler(IProblemDetailsService problemDetails
             {
                 Status = statusCode,
                 Title = title,
-                Detail = exception.Message,
+                Detail = DetailFor(exception),
             },
         });
     }
+
+    /// <summary>
+    /// .NET appends " (Parameter 'name')", in English, to an <see cref="ArgumentException"/>'s
+    /// message whenever a parameter name was given — which is always, in this codebase. The
+    /// Spanish messages the domain writes for the dashboard would otherwise reach it with an
+    /// English developer note glued on. Stripped here, once, rather than by giving up
+    /// <c>nameof</c> everywhere; if the runtime ever localizes the suffix, the match simply
+    /// misses and the message goes out unchanged.
+    /// </summary>
+    internal static string DetailFor(Exception exception)
+        => exception is ArgumentException { ParamName: { } parameter } argument
+            ? argument.Message.Replace($" (Parameter '{parameter}')", string.Empty, StringComparison.Ordinal)
+            : exception.Message;
 }

@@ -162,14 +162,17 @@ public sealed class AiAgentService(
         Guid agentId,
         IReadOnlyList<string> blockedTopics,
         string outOfScopeReply,
+        string? handoffReply,
         CancellationToken cancellationToken)
     {
         await authorizationService.EnsurePermissionAsync(tenantId, callerUserId, Permission.ManageAiAgents, cancellationToken);
 
         var (agent, draft) = await LoadAsync(tenantId, agentId, cancellationToken);
 
-        // Straight onto the live agent, draft untouched — see AgentGuardrailsDto.
-        agent.SetGuardrails(blockedTopics, outOfScopeReply);
+        // Straight onto the live agent, draft untouched — see AgentGuardrailsDto. A
+        // missing handoffReply keeps the stored one: the field arrived after this endpoint
+        // had a consumer, and a body written before it exists must still save.
+        agent.SetGuardrails(blockedTopics, outOfScopeReply, handoffReply ?? agent.HandoffReply);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return AiAgentDto.From(agent, draft);

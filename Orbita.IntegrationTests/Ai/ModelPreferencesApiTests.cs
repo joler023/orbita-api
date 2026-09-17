@@ -171,6 +171,59 @@ public sealed class ModelPreferencesApiTests(TenantsApiFixture fixture) : IClass
     }
 
     [Fact]
+    public async Task An_admin_cannot_choose_models_because_it_changes_the_bill()
+    {
+        // Owner only (ManageAiModels), unlike the rest of the assistant's configuration.
+        // Enforced here, over HTTP, because hiding the entry in the dashboard is not access
+        // control — ORB-A08's own rule, and the frontend's reason for asking.
+        var client = TestRequests.CreateClient(fixture);
+        var (_, _, tenantId, ownerCookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+        var (_, adminCookies) = await TestRequests.InviteAndAcceptAsync(
+            fixture, client, tenantId, ownerCookies, Orbita.Domain.Identity.MemberRole.Admin);
+
+        // Positive control: the owner can, so the 403 below is about the role.
+        Assert.Equal(HttpStatusCode.OK, (await SetAsync(client, ownerCookies, tenantId, LlmTask.Draft, "modelo-del-dueño")).StatusCode);
+
+        var read = await TestRequests.SendAsync(client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-models/{Provider}", adminCookies);
+        var write = await SetAsync(client, adminCookies, tenantId, LlmTask.Draft, "modelo-del-admin");
+        var clear = await TestRequests.SendAsync(client, HttpMethod.Delete, $"/api/tenants/{tenantId}/ai-models/{Provider}/Draft", adminCookies);
+
+        Assert.Equal(HttpStatusCode.Forbidden, read.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, clear.StatusCode);
+
+        // And an Admin can still configure the assistant itself — the line is money, not AI.
+        var agents = await TestRequests.SendAsync(client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-agents", adminCookies);
+        Assert.Equal(HttpStatusCode.OK, agents.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_provider_catalog_names_what_the_route_accepts()
+    {
+        var client = TestRequests.CreateClient(fixture);
+        var (_, _, tenantId, cookies) = await TestRequests.RegisterAndLogInOwnerAsync(client);
+
+        var response = await TestRequests.SendAsync(client, HttpMethod.Get, "/api/ai-providers", cookies);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var providers = (await response.Content.ReadFromJsonAsync<IReadOnlyList<LlmProviderDto>>(TestRequests.JsonOptions))!;
+
+        // Every name it lists is one the preference route actually takes — that is the
+        // whole contract, so it is checked against the route rather than against a list.
+        Assert.NotEmpty(providers);
+        foreach (var provider in providers)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(provider.DisplayName));
+            var listed = await TestRequests.SendAsync(client, HttpMethod.Get, $"/api/tenants/{tenantId}/ai-models/{provider.Name}", cookies);
+            Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+        }
+
+        // At most one primary, and only a configured one can be it.
+        Assert.True(providers.Count(p => p.IsPrimary) <= 1);
+        Assert.All(providers.Where(p => p.IsPrimary), p => Assert.True(p.IsConfigured));
+    }
+
+    [Fact]
     public async Task An_empty_model_is_rejected()
     {
         var client = TestRequests.CreateClient(fixture);

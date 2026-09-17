@@ -285,13 +285,14 @@ public sealed class AiToolCatalogTests
     public void Availability_matches_what_actually_exists()
     {
         // The catalog says what works so the frontend does not hardcode it. Since ORB-C05
-        // the two opportunity tools run; scheduling has no agenda module to write to, and
-        // a handoff has no human queue (ORB-C07/B15) — offering either would be a lie.
+        // the two opportunity tools run, and since ORB-C07 the handoff does — there is a
+        // queue to leave the conversation in. Scheduling still has no agenda module to
+        // write to, so offering it would be a lie.
         Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.ConsultarConocimiento));
         Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.CrearOportunidad));
         Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.MoverEtapa));
+        Assert.True(AiToolCatalog.IsAvailable(AiToolCatalog.EscalarAHumano));
         Assert.False(AiToolCatalog.IsAvailable(AiToolCatalog.AgendarCita));
-        Assert.False(AiToolCatalog.IsAvailable(AiToolCatalog.EscalarAHumano));
     }
 
     [Fact]

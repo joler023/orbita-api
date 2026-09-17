@@ -69,7 +69,7 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 ### Roles and permissions (ORB-A08)
 
 - `RolePermissions` (`Orbita.Domain/Identity`) is the single source of truth for "can this role do X": a `FrozenDictionary<MemberRole, FrozenSet<Permission>>` that any application service checks through `ITenantAuthorizationService.EnsurePermissionAsync(tenantId, callerUserId, permission, ct)` instead of comparing `MemberRole` values inline. This is the generalization ORB-A07 deferred: `TeamInvitationService`'s old private `EnsureCallerIsOwnerOrAdminAsync` is gone, replaced by a call into this shared service. Adding a new backend-enforced capability means adding a `Permission` enum member and its entries in `RolePermissions`, not a new bespoke check.
-- Fifteen permissions exist so far — `ViewTeam`/`ManageTeam` (ORB-A08), `ManageSettings` (ORB-A11, Owner/Admin), `ManageBilling` (ORB-A12, **Owner-only**), `ViewAuditLog` (ORB-A15, Owner/Admin), `ManageAiAgents` (ORB-C02/C10, Owner/Admin), `ViewChannels` (every role) / `ManageChannels` (ORB-B01, Owner/Admin), `ViewPipeline` (every role) / `ManagePipeline` (ORB-D04, Owner/Admin), `ManageOpportunities` (ORB-D05, everyone but Viewer), `ViewContacts` (every role) / `ManageContacts` (ORB-D02, everyone but Viewer), `SendMessages` (ORB-B05, everyone but Viewer), and `ManageTemplates` (ORB-B07, Owner/Admin) — because those are the only areas with role-varying actions so far. Don't pre-create permissions for features that don't exist yet.
+- Seventeen permissions exist so far — `ViewTeam`/`ManageTeam` (ORB-A08), `ManageSettings` (ORB-A11, Owner/Admin), `ManageBilling` (ORB-A12, **Owner-only**), `ViewAuditLog` (ORB-A15, Owner/Admin), `ManageAiAgents` (ORB-C02/C10, Owner/Admin), `ManageAiModels` (ORB-C13, **Owner-only** — it changes the bill), `ViewInbox` (ORB-C07, every role), `ViewChannels` (every role) / `ManageChannels` (ORB-B01, Owner/Admin), `ViewPipeline` (every role) / `ManagePipeline` (ORB-D04, Owner/Admin), `ManageOpportunities` (ORB-D05, everyone but Viewer), `ViewContacts` (every role) / `ManageContacts` (ORB-D02, everyone but Viewer), `SendMessages` (ORB-B05, everyone but Viewer), and `ManageTemplates` (ORB-B07, Owner/Admin) — because those are the only areas with role-varying actions so far. Don't pre-create permissions for features that don't exist yet.
 - `TeamMembersService` (list/change-role/remove) is the ORB-A08 counterpart to ORB-A07's `TeamInvitationService`: the latter only ever creates pending memberships and accepts them, this administers memberships that already exist. Both depend on the same `ITenantAuthorizationService`.
 - **A tenant always keeps at least one Owner.** `TeamMembersService` counts active Owners (`IMembershipRepository.CountActiveByTenantAndRoleAsync`) before demoting or removing one, and throws `CannotRemoveLastOwnerException` (409) if that would leave zero — checked only when the *target* of the change is currently an Owner, not on every call.
 - Enforcement is entirely backend-side, per the historia's explicit acceptance criterion ("ocultar un botón no es control de acceso") — hiding actions a role can't use in the dashboard is `orbita-front`'s job once it exists, not a substitute for the 403s here.
@@ -255,7 +255,7 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **`IOutboundMessageService.SendAgentReplyAsync` is how the reply leaves**, not a private copy of the send path: the acceptance criterion is explicit that it goes out "por la cola de salida normal, con su control de tasa", so it inherits ORB-B05's persist-first guarantee, retry policy and per-account rate limit. It takes no caller id and runs no permission check — the sender isn't a person; what stands in for authorization is that the conversation already has this assistant assigned. `Message.OutboundAgentText` enforces the pairing that makes that legible: `sent_by_user_id` null, `ai_run_id` always set.
 - **`IAiRunRecorder.Record` now returns the staged run's id** so the reply can carry it. Like `IAuditLogger`, it still only stages — `SendAgentReplyAsync`'s own `SaveChangesAsync` commits the run, the reply, the queued job and the agent assignment in one transaction. The one exception: a model that answers with nothing still gets its run saved, because the call was made and it cost money.
 - **A message with no text is not answered at all.** An image with no caption, a sticker, a location: replying "no entendí" to every photo a customer sends is worse than letting a person look at it.
-- **Known gaps:** the `HumanIsHandlingIt` guard can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15 — so it's written and unproven. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
+- **Known gaps:** the `HumanIsHandlingIt` guard's `AssigneeId` half can't be exercised by a test yet — nothing sets `Conversation.AssigneeId` until ORB-B15. Its ORB-C07 half (`IsWaitingForHuman`) is proven end to end by `HandoffApiTests`. The "latencia percibida por debajo de 6 segundos en el percentil 95" criterion is not measured anywhere; `ai_runs.latency_ms` is where the data to measure it lands.
 
 ### Guardrails (ORB-C06)
 
@@ -263,7 +263,7 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 
 - **Blocked topics are not part of the draft.** `PUT /api/tenants/{tenantId}/ai-agents/{agentId}/guardrails` applies immediately, like `PATCH .../enabled`. A setting whose purpose is to make the assistant *stop* talking about something cannot wait for Publicar. `SaveAiAgentBody` does not carry it.
 - **Whole-word matching, not substring**, case- and accent-insensitive. Substring would fire "talla" on "pantalla", "precio" on "apreciamos", "cita" on "felicitaciones" — and the failure is silence, which nobody can diagnose from outside. Accepted cost: "precio" does not catch "precios"; the owner adds the plural. Pinned by `AgentGuardrailsTests` so nobody "fixes" it back.
-- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso", because ORB-C07 does not exist and nobody is notified.
+- **The out-of-scope reply is the owner's, not ours** (`AiAgent.OutOfScopeReply`, editable, 500 chars). It never passes through the model, so it cannot mirror the customer's language — known and accepted: generating it would put the model next to the very subject being blocked. The default promises nothing the product cannot do: no "ya les aviso". Since ORB-C07 an out-of-scope subject also puts the conversation in the human queue, but the default still does not promise a reply — nobody is assigned until ORB-B15.
 - **An out-of-scope subject gets that sentence; a loop or an exhausted window gets silence.** The last two mean the assistant already said too much.
 - **Every block stages `agent.reply_blocked`** `{conversationId, agentId, reason, topic}`. `topic` is a *deliberate exception* to the outbox's ids-and-enums rule: it is free text the owner wrote (their configuration, not customer data), and it is the only thing that answers "why did my assistant go quiet?".
 - The out-of-scope reply is sent through `IOutboundMessageService.SendSystemReplyAsync` and lands as `authorKind: "System"` — the first producer of that value.
@@ -279,20 +279,23 @@ First slice of Track C's Épica C2, and the first thing in this codebase that re
 - **A failing tool never breaks the reply.** Bad arguments, a missing stage, or an exception all become `AgentToolResult(Succeeded: false)` with a Spanish sentence the model can relay; internal error text never reaches the model or the customer.
 - **`LlmMessage.AssistantToolCalls` + `tool_calls` on the OpenAI wire** were missing from ORB-C01: the chat format rejects a `tool` message that doesn't answer a `tool_calls` entry in the turn before it, so the second round of any tool loop would have failed against a real provider while passing every fake. Known gap: the Ollama adapter does not echo `tool_calls` yet (it has no configured `BaseUrl` in this deployment).
 - **`AiTool.ResultsIn`** names the module where a tool's result shows up (`"pipeline"` for both opportunity tools, null for retrieval). It exists because the frontend asked to tell "available" from "available, but you cannot see what it did yet" — this answers the half the backend actually knows. Whether a given screen has shipped is the frontend's own fact; hardcoding it here would be wrong the day it does.
-- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to) and `escalar_a_humano` stays unavailable (ORB-C07/B15 don't exist — offering a handoff with no human queue behind it would be a lie). `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
+- **Availability:** `crear_oportunidad` and `mover_etapa` are `IsAvailable: true`. `agendar_cita` stays unavailable (there is no agenda module to write to). `escalar_a_humano` was unavailable for the matching reason until ORB-C07 built the queue it hands over to. `consultar_conocimiento` is not a callable tool: it runs as retrieval before the first call, gated by the same switch.
 - Tools are part of the **draft** (ORB-C10); guardrails are not (ORB-C06). An agent needs a publish to start using a newly enabled tool.
 
 ### Registro de consumo de IA (ORB-C09, parte que no depende de A13)
 
 `ai_runs` gains two orbita-schema.dbml columns: `tools_called` (jsonb, tool names) and `retrieved_chunk_ids` (uuid[]). One run per model call, so in a tool loop the round that asked for tools carries them and the follow-up round carries none — that is literally what happened, and what billing per action needs. Retrieved fragments are recorded on the first round only: they went into every round's prompt but were retrieved once, and a sum over runs must not double-count them. Existing rows get `[]` / `'{}'`.
 
-**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `was_handoff`, `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — the first needs ORB-C07, the others have no consumer, and this repo does not pre-create columns for features that do not exist.
+**Not done, and not doable yet:** "alimenta directamente la medición de facturación" is ORB-A13 (usage metering), which does not exist. `prompt_version`, `temperature_used` and `turn_number` from the DBML are not added — they have no consumer (`was_handoff` was deferred too, and ORB-C07 added it), and this repo does not pre-create columns for features that do not exist.
 
 ### Enrutador (ORB-C08)
 
 `RoutingPolicy.Decide` (pure) picks who handles an inbound message; `AgentConversationResponder` asks it before resolving the assistant.
 
 - **Rules** (`routing_rules`, RLS'd, tenant-first index) are an ordered list: `{position, name, channel?, keyword?, agentId?}`. First match by position wins; `agentId` null means "leave it for the team". No match falls back to the tenant's enabled assistant — the pre-routing behaviour, so a tenant that never configures rules sees nothing change. `PUT /api/tenants/{tenantId}/routing/rules` replaces the whole list and **the array order is the evaluation order** ("visible y configurable"). A rule pointing at another tenant's assistant is refused (404); the FK to `ai_agents` is `RESTRICT`.
+- **`PUT` answers with the saved list, not 204**: the same flat array `GET` returns, with `position` recalculated 0-based from the array order — so a screen repaints with what was stored rather than with what it believed. The wrapper (`{ rules: [...] }`) is on the request only; the frontend correctly keeps that asymmetry in one file.
+- **Rule ids do not survive a save.** `ReplaceAsync` removes and re-creates, so every `PUT` mints new ids even for rules that did not change. Harmless today — nothing stores a rule id, and the array order is the source of truth — but it makes `RoutingDecision.MatchedRuleId` useless for any future "which rule matched, historically" question. Fixing it means accepting ids on the request and matching on them, which nothing needs yet; don't build it speculatively, do know it before wiring rule ids into analytics.
+- **A rule with neither channel nor keyword matches everything**, which silently strands every rule below it. Accepted as legitimate (it is the "catch-all, last" case) and deliberately not refused by the API; the dashboard warns when such a rule is not last, which is the right layer for a judgement call that has a valid use.
 - **Not in orbita-schema.dbml**, which has no routing table — an addition like `tenant_model_preferences`. The story also names *etiqueta* as a condition; there is no `tags` table yet, so that condition does not exist rather than existing and never matching.
 - **Sticky**: rules choose who takes a *new* conversation; one that already has an assistant keeps it (ORB-C04's invariant). They never bounce a live exchange between assistants.
 - **Keywords match whole words**, accent- and case-insensitive, via the same `WholeWordText` ORB-C06's blocked topics use.
@@ -339,6 +342,204 @@ can be answered without a model call. Off by default, through `PUT/GET
   positive control so a cache that never hits cannot pass by doing nothing.
 - **Cost:** a miss pays one embedding on top of the model call (retrieval embeds the same
   question again — accepted, it is ~USD 0.0000002); a hit pays only that embedding.
+
+### Casos de prueba guardados (ORB-C11, la mitad que faltaba)
+
+`agent_test_cases` (RLS'd, tenant-first index, not in orbita-schema.dbml — same class of
+addition as `routing_rules`) closes the acceptance criterion "se pueden guardar casos de
+prueba y volver a ejecutarlos tras un cambio", which had been open through three rounds of
+frontend coordination because nobody had decided where the cases live.
+
+- **Server, not the browser.** The value of a saved case is re-running it *after* a change,
+  and `localStorage` loses it exactly then — on another machine, in another browser, after
+  clearing site data. It is also the owner's work, not a preference of their browser.
+- **There is no "run" endpoint.** The screen reads a case and posts its turns to
+  `POST .../test-chat`. A second entry point would be a second place the prompt gets built,
+  which is the one thing the test bench must never have (it shares `AgentPromptBuilder` with
+  ORB-C04 so that what the owner tests is what the customer gets).
+- **`AgentTestTurn`/`AgentTestRole` moved from Application to Domain** so the saved case and
+  the exchange posted to the bench are literally the same type — the frontend asked for one
+  shape of the history, not two that happen to match today.
+- `GET|POST /api/tenants/{t}/ai-agents/{a}/test-cases`, `DELETE .../test-cases/{id}`.
+  `ManageAiAgents`, like the rest of ORB-C10/C11. Limits: 20 cases per assistant (409 past
+  it, counted inside the insert's own transaction so two saves cannot both see nineteen),
+  40 turns, an 80-char name the owner writes — never derived from the first message, because
+  a case called "hola" tells nobody what it is for six weeks later.
+- Deleting a case through **another assistant's route is a no-op**, not a success: the
+  tenant check alone would leave the `agentId` in the URL meaningless. Deleting one that is
+  already gone is not an error.
+- The FK to `ai_agents` is **CASCADE**, unlike `ai_runs`' RESTRICT: scratch work must never
+  be the reason a deletable assistant cannot be deleted.
+
+### Traspaso a humano (ORB-C07)
+
+Last story of Track C, and it was **mis-labelled as blocked by ORB-B15** through three
+handoff documents. B15 asks "which of my teammates is handling this conversation"; C07
+asks "is this conversation still the assistant's". Those are different questions, and only
+the second one is needed to stop lying to a customer who asks for a person. The queue —
+conversations waiting for *anybody* — is Track C's to build; picking a person from it is
+still B15's.
+
+- **`conversations` gains three columns** (`handoff_requested_at`, `handoff_reason`,
+  `handoff_summary`), not in orbita-schema.dbml — same class of addition as
+  `last_message_preview`. The timestamp is its own column rather than inferred from
+  `status = 'pending'` because status changes for ordinary reasons: `RegisterInbound`
+  reopens a Pending thread on the next message, which is right for a thread nobody got to
+  and would silently hand a handed-over conversation back to the assistant. That one
+  `if (!IsWaitingForHuman)` in `Conversation.RegisterInbound` is the whole last acceptance
+  criterion ("el agente no vuelve a intervenir salvo que un humano lo reactive").
+- **Four triggers, and the split between them is deliberate.** `HandoffTriggers.Detect`
+  (Domain, pure) reads the customer's own words before any model call — an explicit request
+  and plain frustration — with the same whole-word matching as C06's blocked topics.
+  `escalar_a_humano` covers the half a phrase list never will (sarcasm, politeness masking
+  anger), which is why it is the model's tool and not a keyword. A blocked topic is the
+  third. The fourth is the assistant failing: a loop, an exhausted window, an unsendable
+  answer, or no text at all.
+- **The phrase list errs toward *not* handing over**, the opposite direction from a normal
+  guardrail, because the costs are asymmetric: a false positive takes the conversation away
+  from the assistant until a person gives it back, so an ordinary message gets no instant
+  answer it could have had. `"ya te dije"` and friends are deliberately absent — repetition
+  is judged objectively instead (the same message three times), which needs no guess about
+  tone.
+- **Every reason the assistant goes quiet now ends in the queue.** Before C07, C06's three
+  outcomes left the customer with the assistant that had just declined to help them, which
+  is the "círculo" the story is written against. What did *not* change is what the customer
+  hears: an out-of-scope subject still gets the owner's sentence, a loop or an exhausted
+  window still gets silence, and a garbled model answer still gets silence — an apology for
+  a failure they have not seen is one more message from an assistant with nothing to say.
+- **Routing and business-hours decisions never hand over.** `LeftForTeamByRule` and
+  `OutsideBusinessHours` are per-message decisions; a handoff is sticky, so marking them
+  would permanently disable the assistant on that thread because one message arrived at 2am.
+- **The summary is written *after* the handoff, reacting to its outbox event — measured, not
+  assumed.** The first version wrote it inside `RequestAsync`, and against Neon with the real
+  models a customer who asked for a person waited **13.8 s** for the sentence telling them
+  so, against **6.6 s** for an ordinary answer: a four-second model call for a note meant for
+  somebody else sat in front of them. Now `RequestAsync` is one transaction with no model
+  call, and `HandoffSummaryIntegrationHandler` calls `WriteSummaryAsync` on
+  `conversation.handoff_requested` — domain rule 3, doing exactly what it says. It also fixed
+  resilience in passing: the inline version had to swallow a provider failure and lose the
+  note for good, while the handler lets it propagate so the dispatcher **retries with
+  backoff**. The queue therefore shows `summary: null` for a few seconds after a handoff;
+  the dashboard has to treat it as "todavía no" and not as "no hay". One cheap call per
+  handoff (`LlmTask.Classify` — a three-sentence internal note has the economics of a
+  classification, and a task of its own would mean a config entry per provider for a
+  distinction nobody would act on). When the model hands over through the tool it writes the
+  note itself (`resumen`), and the handler skips the call; `AttachHandoffSummary` never
+  overwrites a note and drops one that arrives after a person gave the conversation back.
+- **The summary is customer data and never leaves the RLS'd table.** The outbox event
+  (`conversation.handoff_requested`) carries ids and the reason enum only — not the summary,
+  unlike C06's `topic`, which was the *owner's* configuration and therefore safe to put
+  there.
+- **`ai_runs.was_handoff`** is finally written: it is in the DBML and ORB-C09 left it out
+  because nothing could set it before this story.
+- **The queue pages with a cursor and reports a total.** The frontend asked for both and was
+  right about why: a queue is precisely the list that grows when the team cannot keep up, so
+  a silent cap of 50 would hide the 51st customer on the worst day the business has. It is
+  served **oldest wait first** — the person who has waited longest is closest to giving up,
+  and newest-first starves exactly them. The cursor encodes **ticks, not milliseconds**:
+  ascending keyset paging with `>` re-includes the boundary row when the cursor is floored,
+  which made page two start with page one's last row. ORB-C02's descending list with `<` is
+  unaffected, which is why it took a paging test on this list to surface it.
+- **`handoffReply` is optional in `PUT .../guardrails`.** The frontend spotted that a
+  required field on an endpoint that already had a consumer would break its limits screen
+  for a business owner rather than for us; null keeps the stored sentence, and existing rows
+  are seeded with the default by the migration. Its default promises only what the product
+  does — the assistant stops answering and the conversation is left for the team — and
+  deliberately not "en un momento te escriben", which would be C06's walked-back promise
+  creeping back in through a different sentence.
+- **New permission `ViewInbox`** (all four roles) for reading the queue; giving a
+  conversation back needs `SendMessages`, because handing a customer back to a machine is
+  acting on the conversation rather than viewing it. ORB-B12's inbox listing is the other
+  reader `ViewInbox` was named for.
+- **The repetition trigger only counts the current 24h window.** A conversation here is a
+  lifetime thread, so counting identical questions across all of it would hand a customer
+  to a person for asking the same thing once a month. Found measuring against seeded data,
+  where long threads legitimately repeat a question; `ReplyContext.WindowHistory` is the
+  bounded list, the prompt still gets the full 20 turns.
+- **The page and its total come from one SQL statement.** They used to be two, and under
+  READ COMMITTED each statement sees its own snapshot: a handoff committing between them
+  returned `items: []` with `total: 1`. A parallel test run caught it. `contactName` is
+  typed non-nullable for the same reason the frontend asked about it — `display_name` is
+  NOT NULL and the join is inner.
+- **`lastMessagePreview` in a queue item is almost always our own handoff sentence**, not
+  the customer's last words, because it is B03's "last message in either direction" and
+  the handoff sentence is sent right after. Found capturing a real item against Neon. Left
+  as is on purpose — the column is B03's and the inbox will rely on that meaning; `summary`
+  is what a queue screen should show. "The customer's last message" would be a new field.
+- **Known gap: "se notifica en vivo" is the outbox event, not a WebSocket push.** The
+  frontend confirmed it has no SignalR client at all (no `@microsoft/signalr`, no
+  `HubConnection`), and ORB-B14 owns the inbox's realtime story, so a hub here would be
+  code with no consumer and a guaranteed collision. Polling `GET .../handoffs` is what the
+  dashboard does today — the same answer C02 gave for document status.
+
+### Criterios de aceptación medidos (C02, C03, C04)
+
+Three Track C criteria had been marked done without ever being measured. They were
+measured on 2026-09-16 with the real models — against Neon first, then against an isolated
+local Postgres with the full seed, because Neon turned out to have another API instance
+somewhere consuming the same queues (see HANDOFF). None of the three was met.
+
+**ORB-C03 — search under 200 ms with 100.000 chunks.** Measured at **650 ms**. The query
+filtered by agent through a `JOIN` to `knowledge_docs`, and with that shape the planner
+never used the HNSW index: it walked `doc_id` and sorted the survivors — exactly the debt
+`AddKnowledgeChunkHnswIndex` predicted. `KnowledgeChunkRepository.SearchAsync` now filters
+with `doc_id IN (…)` and joins for the title only after the limit, and sets
+`SET LOCAL hnsw.iterative_scan = strict_order` so the approximate scan keeps going until
+enough rows pass the agent filter (without it, a search can come back short, or empty when
+the nearest vectors belong to another agent). **1,4 ms** on the same corpus. Needs pgvector
+0.8+, which the test image, the local container and Neon all have (0.8.6).
+- **Don't "simplify" it back to a join.** It reads more naturally and it is the 650 ms one.
+- The endpoint as a whole still spends ~400–600 ms, all of it embedding the question at
+  the provider. The criterion is about the search; the network call is not ours.
+
+**ORB-C02 — 50 pages indexed in under 2 minutes.** Measured at **600 s** for a 50-page
+document (184 chunks): one embedding call per chunk, sequentially. `ILlmProvider` gained
+`EmbedBatchAsync`, and `DocumentChunkBuilder` embeds in batches of 64. Same document:
+**25,1 s**. One `ai_runs` row per call, not per chunk — one call is what the provider bills.
+- A single call measured 1,2 s on a healthy network, so the sequential version was ~220 s
+  at best: batching is what makes the criterion reachable, not a lucky network.
+- **The OpenAI-compatible adapter reorders by the response's `index`**, never by arrival.
+  Lining vectors up by position would attach each chunk's text to another chunk's vector —
+  an index that looks healthy and answers nonsense. A short response throws.
+- Ollama embeds one at a time inside `EmbedBatchAsync`: its adapter has never run against a
+  configured instance, and shipping an untested wire shape there is worse than a loop.
+- A first batched measurement took 440 s, with single calls of 100–185 s. That was this
+  machine's network (DNS was failing for github.com and nuget.org in the same hour), not
+  the design: the same batches took 2–7 s an hour later. If indexing is slow, check the
+  per-call `latency_ms` in `ai_runs` before touching the code.
+
+**The seed was spending money.** `scripts/seed-dev.sql` left 5 % of its `message.received`
+outbox rows unpublished "to look realistic". An unpublished outbox row is not decoration,
+it is a work order: the first app started against a freshly seeded database had its
+assistant answer historical customer messages — real OpenRouter spend, plus 17 handoffs
+to a person invented on sample data. Every seeded row is now published. A realistic
+backlog is made by sending a webhook, never by fabricating pending work in any queue.
+
+**ORB-C04 — perceived reply latency under 6 s at p95. Still not met, and not fixable in
+this codebase alone.** Measured over 12 spaced messages on the isolated database: **p50
+7,8 s, p95 14,2 s**; with the cheap model as the drafting model, p50 6,4 s, p95 10,1 s.
+The drafting model's own p95 was 8–9 s in both runs, so even with zero overhead of ours
+the criterion would fail. Ours is ~2–4 s: the inbound worker's 2 s tick, the outbox's
+0,5 s, embedding the question for retrieval, and the saves. Meeting it is a product
+decision — a faster provider or model for `Draft`, a smaller prompt, or a different
+criterion — not a refactor. Measure again with `ai_runs.latency_ms` before and after
+whatever is chosen.
+
+### Modelos por tarea: solo el dueño, y catálogo de proveedores (ORB-C13, ajuste)
+
+- **`ManageAiModels` is Owner-only**, and the three `ai-models` endpoints require it
+  instead of `ManageAiAgents`. The frontend asked, with the argument that decided it: the
+  choice changes what customers are answered with *and what the organization is billed*,
+  and money is where this product already draws the Owner-only line (`ManageBilling`). An
+  Admin still configures assistants. Enforced over HTTP with a test — hiding the entry in
+  the dashboard is not access control (ORB-A08).
+- **`GET /api/ai-providers`** → `[{ name, displayName, isConfigured, isPrimary }]`, in
+  failover order. `name` is what `{providerName}` takes; before this nothing said what to
+  put there. Not tenant-scoped, like `GET /api/ai-tools`: it describes the deployment, and
+  knowing a name grants nothing. `LlmProviderCatalog` is built in DI from the same list as
+  `ResilientLlmProvider`, so the order a screen shows cannot drift from the order a call
+  tries. `isPrimary` is the first *configured* one — an unconfigured provider is skipped at
+  runtime, so calling it primary would be wrong about who answers today.
 
 ## Mandatory engineering conventions
 

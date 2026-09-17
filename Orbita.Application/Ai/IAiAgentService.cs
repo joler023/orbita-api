@@ -70,14 +70,21 @@ public interface IAiAgentService
     /// ORB-C06. Replaces the blocked topics and the out-of-scope reply together, and
     /// applies them to the live assistant immediately — no draft, no publish.
     /// </summary>
+    /// <param name="handoffReply">
+    /// ORB-C07's sentence, added after this endpoint already had a consumer. Null keeps
+    /// whatever is stored, so a client written against the two-field body still saves —
+    /// the frontend asked for exactly this, having spotted that a required field here
+    /// would break its limits screen for a business owner rather than for us.
+    /// </param>
     /// <exception cref="AiAgentNotFoundException"/>
-    /// <exception cref="ArgumentException">Too many topics, a topic or the reply too long, or an empty reply.</exception>
+    /// <exception cref="ArgumentException">Too many topics, a topic or a reply too long, or an empty reply.</exception>
     Task<AiAgentDto> SetGuardrailsAsync(
         Guid tenantId,
         Guid callerUserId,
         Guid agentId,
         IReadOnlyList<string> blockedTopics,
         string outOfScopeReply,
+        string? handoffReply,
         CancellationToken cancellationToken);
 
     Task<AiAgentDto> SetEnabledAsync(

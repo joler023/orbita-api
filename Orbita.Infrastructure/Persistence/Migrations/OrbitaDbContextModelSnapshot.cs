@@ -75,6 +75,45 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.ToTable("agent_answer_cache", (string)null);
                 });
 
+            modelBuilder.Entity("Orbita.Domain.Ai.AgentTestCase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Turns")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("turns");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("TenantId", "AgentId")
+                        .HasDatabaseName("ix_agent_test_cases_tenant_agent");
+
+                    b.ToTable("agent_test_cases", (string)null);
+                });
+
             modelBuilder.Entity("Orbita.Domain.Ai.AiAgent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -88,6 +127,14 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("HandoffReply")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasDefaultValue("Listo: dejo de responderte yo y la conversación queda para alguien del equipo.")
+                        .HasColumnName("handoff_reply");
 
                     b.Property<string>("Instructions")
                         .IsRequired()
@@ -302,6 +349,12 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.Property<int>("TokensOut")
                         .HasColumnType("integer")
                         .HasColumnName("tokens_out");
+
+                    b.Property<bool>("WasHandoff")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("was_handoff");
 
                     b.PrimitiveCollection<List<Guid>>("_retrievedChunkIds")
                         .IsRequired()
@@ -1532,6 +1585,20 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("first_response_seconds");
 
+                    b.Property<string>("HandoffReason")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("handoff_reason");
+
+                    b.Property<DateTimeOffset?>("HandoffRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("handoff_requested_at");
+
+                    b.Property<string>("HandoffSummary")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("handoff_summary");
+
                     b.Property<DateTimeOffset?>("HumanAgentExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("human_agent_expires_at");
@@ -1570,6 +1637,10 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                     b.HasIndex("ChannelAccountId");
 
                     b.HasIndex("ContactId");
+
+                    b.HasIndex("TenantId", "HandoffRequestedAt")
+                        .HasDatabaseName("ix_conv_handoff_queue")
+                        .HasFilter("handoff_requested_at IS NOT NULL");
 
                     b.HasIndex("TenantId", "AssigneeId", "Status");
 
@@ -1884,6 +1955,21 @@ namespace Orbita.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Orbita.Domain.Ai.AgentAnswerCacheEntry", b =>
+                {
+                    b.HasOne("Orbita.Domain.Ai.AiAgent", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Orbita.Domain.Tenants.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Orbita.Domain.Ai.AgentTestCase", b =>
                 {
                     b.HasOne("Orbita.Domain.Ai.AiAgent", null)
                         .WithMany()

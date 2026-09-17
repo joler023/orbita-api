@@ -38,9 +38,13 @@ public sealed record AgentToolResult(string ToolName, bool Succeeded, string Res
 
 public sealed class AgentToolExecutor(
     IOpportunityService opportunities,
+    Orbita.Application.Inbox.IConversationHandoffService handoffService,
     ILogger<AgentToolExecutor> logger) : IAgentToolExecutor
 {
     public const int TitleMaxLength = 200;
+
+    /// <summary>Same bound as the column the note lands in (<c>Conversation.HandoffSummaryMaxLength</c>).</summary>
+    public const int SummaryMaxLength = 600;
 
     private static readonly FrozenTools Tools = new();
 
@@ -64,6 +68,7 @@ public sealed class AgentToolExecutor(
             {
                 AiToolCatalog.CrearOportunidad => await CreateOpportunityAsync(context, arguments.RootElement, cancellationToken),
                 AiToolCatalog.MoverEtapa => await MoveStageAsync(context, arguments.RootElement, cancellationToken),
+                AiToolCatalog.EscalarAHumano => await HandOffAsync(context, arguments.RootElement, cancellationToken),
                 _ => Failure(call.Name, "Esa herramienta no está disponible para este asistente."),
             };
         }
@@ -116,6 +121,38 @@ public sealed class AgentToolExecutor(
         }
     }
 
+    /// <summary>
+    /// ORB-C07's fourth trigger: the assistant's own judgment. The others are read off the
+    /// customer's words before any model call; this one is the model deciding it cannot
+    /// help, which is the half a phrase list will never catch.
+    ///
+    /// The note is optional and, when it comes, is the model's own — it is the only party
+    /// here holding the whole exchange, and taking it saves the cheap summarizing call the
+    /// other paths pay for. The reply it writes afterwards still goes out: that is the
+    /// assistant saying goodbye in the customer's own language, which a stored sentence
+    /// cannot do.
+    /// </summary>
+    private async Task<AgentToolResult> HandOffAsync(
+        AgentToolContext context, JsonElement arguments, CancellationToken cancellationToken)
+    {
+        var summary = OptionalString(arguments, "resumen", SummaryMaxLength);
+
+        var handedOver = await handoffService.RequestAsync(
+            context.TenantId,
+            context.ConversationId,
+            context.AgentId,
+            Domain.Inbox.HandoffReason.AgentDecision,
+            summary,
+            cancellationToken);
+
+        // Already queued is a success from the model's side: the customer is waiting for a
+        // person either way, and telling it otherwise would make it try again or apologize
+        // for something that did happen.
+        return Success(
+            AiToolCatalog.EscalarAHumano,
+            new { ok = true, traspasada = true, yaEstaba = !handedOver });
+    }
+
     private static JsonDocument ParseArguments(string json)
     {
         try
@@ -150,6 +187,20 @@ public sealed class AgentToolExecutor(
         return text.Length > maxLength
             ? throw new ToolArgumentException($"El dato \"{name}\" es demasiado largo.")
             : text;
+    }
+
+    private static string? OptionalString(JsonElement arguments, string name, int maxLength)
+    {
+        if (!arguments.TryGetProperty(name, out var value)
+            || value.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            return null;
+        }
+
+        var text = value.GetString()!.Trim();
+
+        return text.Length > maxLength ? text[..maxLength] : text;
     }
 
     private static decimal? OptionalAmount(JsonElement arguments, string name)
@@ -208,6 +259,21 @@ public sealed class AgentToolExecutor(
                     "etapa": { "type": "string", "description": "Nombre exacto de la etapa destino, como aparece en el tablero." }
                   },
                   "required": ["etapa"],
+                  "additionalProperties": false
+                }
+                """),
+            [AiToolCatalog.EscalarAHumano] = new(
+                AiToolCatalog.EscalarAHumano,
+                "Entrega esta conversación a una persona del equipo cuando el cliente lo pide, cuando "
+                    + "no puedes resolver lo que necesita, o cuando se está frustrando. Después de usarla, "
+                    + "despídete brevemente: tú ya no vas a seguir respondiendo en esta conversación.",
+                """
+                {
+                  "type": "object",
+                  "properties": {
+                    "resumen": { "type": "string", "description": "Qué necesita el cliente y en qué quedó la conversación, en dos o tres frases, para quien la retome.", "maxLength": 600 }
+                  },
+                  "required": [],
                   "additionalProperties": false
                 }
                 """),
