@@ -69,7 +69,7 @@ The authoritative data model lives one level up at `../docs/orbita-schema.dbml` 
 ### Roles and permissions (ORB-A08)
 
 - `RolePermissions` (`Orbita.Domain/Identity`) is the single source of truth for "can this role do X": a `FrozenDictionary<MemberRole, FrozenSet<Permission>>` that any application service checks through `ITenantAuthorizationService.EnsurePermissionAsync(tenantId, callerUserId, permission, ct)` instead of comparing `MemberRole` values inline. This is the generalization ORB-A07 deferred: `TeamInvitationService`'s old private `EnsureCallerIsOwnerOrAdminAsync` is gone, replaced by a call into this shared service. Adding a new backend-enforced capability means adding a `Permission` enum member and its entries in `RolePermissions`, not a new bespoke check.
-- Sixteen permissions exist so far — `ViewTeam`/`ManageTeam` (ORB-A08), `ManageSettings` (ORB-A11, Owner/Admin), `ManageBilling` (ORB-A12, **Owner-only**), `ViewAuditLog` (ORB-A15, Owner/Admin), `ManageAiAgents` (ORB-C02/C10, Owner/Admin), `ViewInbox` (ORB-C07, every role), `ViewChannels` (every role) / `ManageChannels` (ORB-B01, Owner/Admin), `ViewPipeline` (every role) / `ManagePipeline` (ORB-D04, Owner/Admin), `ManageOpportunities` (ORB-D05, everyone but Viewer), `ViewContacts` (every role) / `ManageContacts` (ORB-D02, everyone but Viewer), `SendMessages` (ORB-B05, everyone but Viewer), and `ManageTemplates` (ORB-B07, Owner/Admin) — because those are the only areas with role-varying actions so far. Don't pre-create permissions for features that don't exist yet.
+- Seventeen permissions exist so far — `ViewTeam`/`ManageTeam` (ORB-A08), `ManageSettings` (ORB-A11, Owner/Admin), `ManageBilling` (ORB-A12, **Owner-only**), `ViewAuditLog` (ORB-A15, Owner/Admin), `ManageAiAgents` (ORB-C02/C10, Owner/Admin), `ManageAiModels` (ORB-C13, **Owner-only** — it changes the bill), `ViewInbox` (ORB-C07, every role), `ViewChannels` (every role) / `ManageChannels` (ORB-B01, Owner/Admin), `ViewPipeline` (every role) / `ManagePipeline` (ORB-D04, Owner/Admin), `ManageOpportunities` (ORB-D05, everyone but Viewer), `ViewContacts` (every role) / `ManageContacts` (ORB-D02, everyone but Viewer), `SendMessages` (ORB-B05, everyone but Viewer), and `ManageTemplates` (ORB-B07, Owner/Admin) — because those are the only areas with role-varying actions so far. Don't pre-create permissions for features that don't exist yet.
 - `TeamMembersService` (list/change-role/remove) is the ORB-A08 counterpart to ORB-A07's `TeamInvitationService`: the latter only ever creates pending memberships and accepts them, this administers memberships that already exist. Both depend on the same `ITenantAuthorizationService`.
 - **A tenant always keeps at least one Owner.** `TeamMembersService` counts active Owners (`IMembershipRepository.CountActiveByTenantAndRoleAsync`) before demoting or removing one, and throws `CannotRemoveLastOwnerException` (409) if that would leave zero — checked only when the *target* of the change is currently an Owner, not on every call.
 - Enforcement is entirely backend-side, per the historia's explicit acceptance criterion ("ocultar un botón no es control de acceso") — hiding actions a role can't use in the dashboard is `orbita-front`'s job once it exists, not a substitute for the 403s here.
@@ -524,6 +524,22 @@ the criterion would fail. Ours is ~2–4 s: the inbound worker's 2 s tick, the o
 decision — a faster provider or model for `Draft`, a smaller prompt, or a different
 criterion — not a refactor. Measure again with `ai_runs.latency_ms` before and after
 whatever is chosen.
+
+### Modelos por tarea: solo el dueño, y catálogo de proveedores (ORB-C13, ajuste)
+
+- **`ManageAiModels` is Owner-only**, and the three `ai-models` endpoints require it
+  instead of `ManageAiAgents`. The frontend asked, with the argument that decided it: the
+  choice changes what customers are answered with *and what the organization is billed*,
+  and money is where this product already draws the Owner-only line (`ManageBilling`). An
+  Admin still configures assistants. Enforced over HTTP with a test — hiding the entry in
+  the dashboard is not access control (ORB-A08).
+- **`GET /api/ai-providers`** → `[{ name, displayName, isConfigured, isPrimary }]`, in
+  failover order. `name` is what `{providerName}` takes; before this nothing said what to
+  put there. Not tenant-scoped, like `GET /api/ai-tools`: it describes the deployment, and
+  knowing a name grants nothing. `LlmProviderCatalog` is built in DI from the same list as
+  `ResilientLlmProvider`, so the order a screen shows cannot drift from the order a call
+  tries. `isPrimary` is the first *configured* one — an unconfigured provider is skipped at
+  runtime, so calling it primary would be wrong about who answers today.
 
 ## Mandatory engineering conventions
 
