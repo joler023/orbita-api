@@ -472,6 +472,26 @@ still B15's.
   code with no consumer and a guaranteed collision. Polling `GET .../handoffs` is what the
   dashboard does today — the same answer C02 gave for document status.
 
+### Criterios de aceptación medidos (C02, C03, C04)
+
+Three Track C criteria had been marked done without ever being measured. They were
+measured on 2026-09-16 with the real models — against Neon first, then against an isolated
+local Postgres with the full seed, because Neon turned out to have another API instance
+somewhere consuming the same queues (see HANDOFF). None of the three was met.
+
+**ORB-C03 — search under 200 ms with 100.000 chunks.** Measured at **650 ms**. The query
+filtered by agent through a `JOIN` to `knowledge_docs`, and with that shape the planner
+never used the HNSW index: it walked `doc_id` and sorted the survivors — exactly the debt
+`AddKnowledgeChunkHnswIndex` predicted. `KnowledgeChunkRepository.SearchAsync` now filters
+with `doc_id IN (…)` and joins for the title only after the limit, and sets
+`SET LOCAL hnsw.iterative_scan = strict_order` so the approximate scan keeps going until
+enough rows pass the agent filter (without it, a search can come back short, or empty when
+the nearest vectors belong to another agent). **1,4 ms** on the same corpus. Needs pgvector
+0.8+, which the test image, the local container and Neon all have (0.8.6).
+- **Don't "simplify" it back to a join.** It reads more naturally and it is the 650 ms one.
+- The endpoint as a whole still spends ~400–600 ms, all of it embedding the question at
+  the provider. The criterion is about the search; the network call is not ours.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
