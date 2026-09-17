@@ -703,6 +703,56 @@ public sealed class AgentConversationResponderTests
     }
 
     [Fact]
+    public async Task Asking_the_same_thing_months_apart_is_not_frustration()
+    {
+        // A conversation here is a lifetime thread, so the repetition trigger only looks
+        // inside the current 24h window. Without that bound, a customer who asks the same
+        // question once a month would be handed to a person for it — found while measuring
+        // against seeded data, where long threads legitimately repeat a question.
+        Agent();
+        var (conversation, inbound) = OpenConversation("¿Aceptan transferencia?");
+
+        var old = _time.GetUtcNow().AddDays(-40);
+        _messages
+            .Setup(r => r.GetRecentByConversationAsync(_tenantId, conversation.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Message.Inbound(_tenantId, conversation.Id, "wamid.old.1", "¿Aceptan transferencia?", null, null, old),
+                Message.Inbound(_tenantId, conversation.Id, "wamid.old.2", "¿Aceptan transferencia?", null, null, old.AddDays(20)),
+                inbound,
+            ]);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.Replied, outcome.Decision);
+        _handoffs.Verify(
+            h => h.RequestAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<HandoffReason>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Asking_the_same_thing_three_times_in_one_window_hands_it_over()
+    {
+        Agent();
+        var (conversation, inbound) = OpenConversation("¿Aceptan transferencia?");
+
+        var now = _time.GetUtcNow();
+        _messages
+            .Setup(r => r.GetRecentByConversationAsync(_tenantId, conversation.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Message.Inbound(_tenantId, conversation.Id, "wamid.w.1", "¿Aceptan transferencia?", null, null, now.AddMinutes(-20)),
+                Message.Inbound(_tenantId, conversation.Id, "wamid.w.2", "¿Aceptan transferencia?", null, null, now.AddMinutes(-10)),
+                inbound,
+            ]);
+
+        var outcome = await RespondAsync(conversation, inbound);
+
+        Assert.Equal(AgentReplyDecision.HandedOffToHuman, outcome.Decision);
+        Assert.Equal(HandoffReason.Frustration, outcome.HandoffReason);
+    }
+
+    [Fact]
     public async Task A_conversation_waiting_for_a_person_is_left_alone()
     {
         Agent();
