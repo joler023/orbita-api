@@ -65,7 +65,7 @@ public sealed class AgentConversationResponder(
         // so that it also wins over a blocked topic in the same message: both end the
         // assistant's turn, but "me pidieron un humano" is the label the person picking
         // the conversation up can act on, and "parecía molesto" is not.
-        if (HandoffTriggers.Detect(incoming, context.GuardrailHistory) is { } trigger)
+        if (HandoffTriggers.Detect(incoming, context.WindowHistory) is { } trigger)
         {
             return await HandOffAsync(tenantId, conversationId, agent, trigger, agent.HandoffReply, cancellationToken);
         }
@@ -452,15 +452,24 @@ public sealed class AgentConversationResponder(
             var repliesInWindow = await messages.CountAgentRepliesSinceAsync(
                 tenantId, conversationId, windowStart, ct);
 
+            // The message being answered is the last turn of the prompt, not part of the
+            // history, so it must not appear twice.
+            var earlier = history
+                .Where(m => m.Id != message.Id && !string.IsNullOrWhiteSpace(m.Body))
+                .TakeLast(MaxHistoryTurns)
+                .ToList();
+
             return new ReplyContext(
                 agent,
                 message.Body,
-                // The message being answered is the last turn of the prompt, not part of
-                // the history, so it must not appear twice.
-                [.. history
-                    .Where(m => m.Id != message.Id && !string.IsNullOrWhiteSpace(m.Body))
-                    .TakeLast(MaxHistoryTurns)
-                    .Select(m => new AgentTurn(m.Direction == MessageDirection.Outbound, m.Body!))],
+                [.. earlier.Select(m => new AgentTurn(m.Direction == MessageDirection.Outbound, m.Body!))],
+                // ORB-C07's repetition trigger is about *this* exchange, so it only sees
+                // the turns inside the current 24h window. A conversation here is a
+                // lifetime thread: counting repeats across all of it would read "asked the
+                // same thing once a month for three months" as frustration.
+                [.. earlier
+                    .Where(m => m.CreatedAt >= windowStart)
+                    .Select(m => new AgentConversationTurn(m.Direction == MessageDirection.Outbound, m.Body!))],
                 repliesInWindow,
                 conversation.ContactId,
                 SkipReason: null);
@@ -483,15 +492,21 @@ public sealed class AgentConversationResponder(
         return TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var zone) ? zone : TimeZoneInfo.Utc;
     }
 
+    /// <param name="WindowHistory">
+    /// The subset of <paramref name="History"/> inside the current service window, which
+    /// is what ORB-C07's repetition trigger judges. Two lists rather than one because the
+    /// prompt wants all the context it can get and the trigger must not reach back months.
+    /// </param>
     private sealed record ReplyContext(
         AiAgent? Agent,
         string? Incoming,
         IReadOnlyList<AgentTurn> History,
+        IReadOnlyList<AgentConversationTurn> WindowHistory,
         int RepliesInWindow,
         Guid ContactId,
         AgentReplyDecision? SkipReason)
     {
-        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], 0, Guid.Empty, decision);
+        public static ReplyContext Skip(AgentReplyDecision decision) => new(null, null, [], [], 0, Guid.Empty, decision);
 
         /// <summary>The same turns, in the shape the domain guardrails judge.</summary>
         public IReadOnlyList<AgentConversationTurn> GuardrailHistory

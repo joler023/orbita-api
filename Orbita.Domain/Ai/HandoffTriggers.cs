@@ -101,7 +101,14 @@ public static class HandoffTriggers
     /// reading of the same message, and it is the one the person picking the conversation
     /// up can act on ("me pidieron un humano" beats "parecía molesto").
     /// </summary>
-    /// <param name="history">Earlier turns, oldest first. Only the customer's own are read.</param>
+    /// <param name="history">
+    /// Earlier turns <b>of the current service window</b>, oldest first; only the
+    /// customer's own are read. The window bound matters: a conversation is a lifetime
+    /// thread here, so counting repeats across all of it would call somebody frustrated
+    /// for asking the same question once a month for three months. Same unit ORB-C06's
+    /// reply limit uses, and for the same reason — "how stuck is this exchange" is a
+    /// question about this exchange.
+    /// </param>
     public static HandoffReason? Detect(string? incomingMessage, IReadOnlyList<AgentConversationTurn> history)
     {
         ArgumentNullException.ThrowIfNull(history);
