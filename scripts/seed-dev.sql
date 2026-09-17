@@ -581,8 +581,15 @@ SELECT
     ),
     NULL,
     m.created_at,
-    CASE WHEN random() < 0.95 THEN m.created_at + interval '600 milliseconds' ELSE NULL END,
-    CASE WHEN random() < 0.95 THEN 1 ELSE 2 END
+    -- Todas publicadas, a propósito. Antes el 5 % quedaba con published_at NULL para
+    -- "verse realista", y una fila sin publicar no es decoración: es una orden de
+    -- trabajo. Al arrancar la app contra una base recién sembrada, el despachador las
+    -- tomaba y el asistente intentaba responder mensajes históricos — medido: gastó
+    -- dinero real en OpenRouter y dejó 17 traspasos a humano inventados sobre datos de
+    -- ejemplo (ORB-C07). Un rezago realista se consigue mandando un webhook, no
+    -- fabricando trabajo pendiente.
+    m.created_at + interval '600 milliseconds',
+    1
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE m.tenant_id IN (SELECT id FROM seed_tenants)
