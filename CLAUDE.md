@@ -492,6 +492,22 @@ the nearest vectors belong to another agent). **1,4 ms** on the same corpus. Nee
 - The endpoint as a whole still spends ~400–600 ms, all of it embedding the question at
   the provider. The criterion is about the search; the network call is not ours.
 
+**ORB-C02 — 50 pages indexed in under 2 minutes.** Measured at **600 s** for a 50-page
+document (184 chunks): one embedding call per chunk, sequentially. `ILlmProvider` gained
+`EmbedBatchAsync`, and `DocumentChunkBuilder` embeds in batches of 64. Same document:
+**25,1 s**. One `ai_runs` row per call, not per chunk — one call is what the provider bills.
+- A single call measured 1,2 s on a healthy network, so the sequential version was ~220 s
+  at best: batching is what makes the criterion reachable, not a lucky network.
+- **The OpenAI-compatible adapter reorders by the response's `index`**, never by arrival.
+  Lining vectors up by position would attach each chunk's text to another chunk's vector —
+  an index that looks healthy and answers nonsense. A short response throws.
+- Ollama embeds one at a time inside `EmbedBatchAsync`: its adapter has never run against a
+  configured instance, and shipping an untested wire shape there is worse than a loop.
+- A first batched measurement took 440 s, with single calls of 100–185 s. That was this
+  machine's network (DNS was failing for github.com and nuget.org in the same hour), not
+  the design: the same batches took 2–7 s an hour later. If indexing is slow, check the
+  per-call `latency_ms` in `ai_runs` before touching the code.
+
 ## Mandatory engineering conventions
 
 1. **SOLID, strictly.** Every class/service has one reason to change; depend on abstractions (interfaces) at layer boundaries, not concrete infrastructure; prefer composition over inheritance for cross-cutting behavior. If a controller or service is doing more than one job, split it.
